@@ -1,5 +1,21 @@
 # 发布说明
 
+### 2026-08-15 — 0.6.0
+
+- 将九个公共技能重写为 51–92 行的渐进加载入口；技能正文总字节从约 140 KB 降至约
+  28 KB，明确阶段任务不再要求模型读取 suite manifest、完整速查或阶段契约；专项参考仍从
+  各技能入口按需可发现。
+- 新增 `project_tool.py prepare`：按 stage/episode/intent 生成 hash 绑定任务胶囊和工作骨架，
+  汇总唯一下一动作、creator authority、精确来源、按需参考和输出目标。
+- 新增 `project_tool.py finalize`：拒绝陈旧胶囊，生成 screenplay index，确定性编译 prompt
+  记录与 Markdown 投影，执行 storyboard/video 机械检查，并支持显式 candidate 发布。
+- `review-bundle` 新增 scope 过滤、基于旧 verdict 的差量目标和 minified JSON；compact 模式
+  不删除证据，交付终审继续使用 full episode。
+- 新增模型上下文性能审计及回归预算。套件升级到 0.6.0、提示配方升级到
+  `1.2.0-draft`；契约保持 `1.3.1-draft`，pipeline 保持 2.0.1。
+- 文档入口统一到 M0–M7 和任务胶囊工作流；移除旧 C0–C5 检查点、重复的公共预检正文、
+  已失效的发布限制与固定分钟数，并增加链接和文档一致性回归。
+
 ### 2026-08-14 — 0.5.1
 
 - 套件升级到 0.5.1，契约升级到 `1.3.1-draft`，固定流程升级到 pipeline 2.0.1。

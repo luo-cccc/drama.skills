@@ -1,217 +1,52 @@
 ---
 name: short-drama-write
-description: 编剧环节：创作或修订中文短剧、漫剧单集卡、因果节拍与可拍摄的 Markdown 剧本，也负责把现有中文剧本以保留原文、预览语义差异、创作者接受后发布的方式规范化。用户提出“写/改一集短剧”“把大纲写成剧本”“优化场景/对白”“去模板感地修订”“去 AI 味润色”“续写下一集”或提供现成剧本要求进入后续制作时使用；不负责资产、分镜、媒体提示词或终审。
-license: MIT
+description: 创建或修改中文短剧、漫剧的单集卡、因果节拍和可拍摄 Markdown 剧本，也将现成剧本做保留原意的生产格式规范化。仅在用户明确要求写作、续写、改场景、改对白或修改正文时使用；只检查、诊断模板感或 AI 味而不修改正文时使用 short-drama-review。
 ---
 
 # 短剧写作
 
-把单集意图写成可表演、可追踪且会改变故事状态的场景。`screenplay.md` 是唯一可编辑剧本源；卡片和节拍帮助推理，不是另一份正文。
+## 快速入口
 
-## 先定位套件
+1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+2. 运行 `prepare <project> --stage write --episode EP001 --intent create|revise`。
+3. 先读任务胶囊，只打开列明的单集契约、必要资产记录和当前剧本块。
+4. 所有权或契约缺失时才读 [stage-contract.md](references/stage-contract.md)。
 
-从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
-套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
-随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界与规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
-例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
+## 工作流
 
-## 先判断入口
+1. 确认单集契约唯一 owner。已有 accepted episode map 时只投影；没有开发记录时使用
+   `write_standalone` 单集卡，不同时激活两种权威。
+2. 新写、续写或大修时按
+   [writing-quality-loop.md](references/writing-quality-loop.md) 运行
+   `writer_quality.py build-brief`，只带本集合同和最多三份邻近剧本差异。
+3. 建立因果节拍：行动改变局面，结果制造下一步压力；不要用情绪标签代替事件。
+4. 逐场确定议程、对抗、可见动作、方向性转折和退出状态。需要时才读
+   [script-craft.md](references/script-craft.md) 与
+   [dialogue-craft.md](references/dialogue-craft.md)。
+5. 只在 `screenplay.md` 写正文。剧本不决定景别、机位、逐镜 View 或镜头时长。
+6. 新元素标记待播种，不静默改写设定集。固定主线在 episode-card 中绑定实际消费的
+   generation asset/model/view/fragment 记录。
+7. 运行 `finalize --packet ...`：它生成 candidate screenplay index、校验结构，并可显式发布。
+8. 新写、续写或大修再运行 `writer_quality.py check`；只修相关块，然后重新 finalize。
 
-1. **有已接受的分集规划**：读取本集进入状态、承诺和交接事实后写作。
-2. **只有想法或口述大纲**：在本技能内制作最小单集卡与因果节拍；只有系列方向本身未定时才转 `$short-drama-develop`。
-3. **已有规范剧本**：保留作者语言，做定点修订；先说明改动意图和影响。
-4. **已有非规范文本，目的是进入后续制作**：保存原始字节；只提议场景标题、对白/动作分块、生产标签与索引所需的最小规范化。展示语义新增、删除、改写、未映射段落与不确定处，得到创作者接受后才能发布。不得补造故事引擎、节拍或新剧情。
+专项写作只在命中时读取：基础格式见
+[screenplay-format.md](references/screenplay-format.md)，制作方言见
+[production-format-dialect.md](references/production-format-dialect.md)，声音组织见
+[scene-sound-dramaturgy.md](references/scene-sound-dramaturgy.md)，场间交接见
+[scene-handoff-capsule.md](references/scene-handoff-capsule.md)，避免可替换实现见
+[substitutable-realization.md](references/substitutable-realization.md)。
 
-## 每次执行
+## 产物
 
-### 1. 读取当前真相
-
-确认创作者约束、已接受的上游事实、本集进入状态和待兑现铺垫。连续项目还要读取本集 `hook_operations`：把 `advance`/`resolve` 的 `evidence` 和 `action_effect` 落到可表演的行动与后果；`defer` 只能保留压力，不能伪写成已推进。若修订已有剧本，引用当前文件而不是凭对话记忆重写。本阶段拥有什么、继承什么见 [阶段契约](references/stage-contract.md)。
-
-新写、续写或大修时，读取 [写作质量闭环](references/writing-quality-loop.md)，先用 `writer_quality.py build-brief` 从地图记录或 `write_standalone` 单集卡、以及最多三份紧邻已接受剧本派生 `writer-brief.md`。它必须写在 `.short-drama/work/writer-briefs/`，是私有工作包，不能发布、接受或作为下游 artifact；执行其中已接受合同并避开近期同构，不把它当作另一个剧情 owner，也不把整套历史正文塞进上下文。首集或没有近期剧本时正常跳过差异段。
-
-固定主线必须记录实际消费的 generation 资产范围、资产或空间模型、视图与标准片段记录级输入。
-它们约束身份和世界事实，但不得把模型字段或视觉提示词塞进剧本正文。
-这些记录在 `episode-card.json#generation_asset_bindings` 中逐资产列出：`asset_id`、唯一
-`model_id`、本集允许下游选择的 `view_ids`、剧本明确需要的 `variant_ids` 和覆盖它们的
-`fragment_ids`。`view_ids` 不是景别或机位决定；它只限定 M4b 可选择的已接受 View 契约，
-逐镜实际 `view_id` 由 storyboard owner 决定。
-该清单必须与发布时的 `--input-record` 完全对应；只绑定一份文件或一个代表资产不能满足 M2。
-
-`设定集/*.jsonl` 存在身份记录（含 `proposed` 播种记录）时，按记录级绑定读取，作为
-本集的演员表与世界观约束：人物姓名、称谓、身份、地点与关键道具须与设定一致；
-设定集为空（全新项目直接写第一集）时不阻断，但提示创作者先播种可避免后续返工。
-剧本需要引入设定集之外的新角色、地点或关键道具时，正常写作，并在交接胶囊或给
-创作者的说明中标记为「待播种」，交给 `$short-drama-assets` 补录身份层记录。
-「待播种」不得卡死 candidate 生产：本阶段先发布剧本候选并重建 index，assets owner 可从
-精确 index 记录播种身份层记录（`authority: candidate`、`proposed`）。创作者确认后，生命周期
-按“身份播种 → 资产等级 → 模型/View → 标准片段 → 重发布并接受剧本”逐层推进；剧本接受前
-再次修订时，只刷新受改动 block 波及的播种、基线和片段。缺任一层时剧本可预览但不可接受，
-报告 `BLK-M2-ASSET-REF`。
-
-### 2. 确定单集契约的唯一 owner
-
-- **有 accepted `项目开发/episode-map.jsonl` 记录**：复制
-  [episode-card.json](assets/episode-card.json)。它只保存上游 artifact/hash/record
-  pointer 和写作执行选择；不复制、不改写 incoming/objective/turn/payoff/handoff。
-- **没有 development map 的 script-first 项目**：复制
-  [episode-card-standalone.json](assets/episode-card-standalone.json)，以 `write_standalone`
-  模式拥有最小单集契约。EP n>1 时，单集卡必须包含从上集 outgoing 得出的
-  incoming 摘要（知识、持物、伤势、关系、决定的开场状态）；上集已有 continuity
-  记录时逐条绑定，还没有资产台账时以已接受的上集剧本与单集卡为 incoming 来源；
-  与上集 outgoing 冲突时显式处理，不静默改写。
-
-同一集不得同时激活两个模式。若后续建立 development map，先做语义
-diff，让创作者明确选择 authority 迁移，将 standalone 契约标记 superseded，
-再换成 pointer 卡。若上游契约需改，发 develop owner revision；不在 execution
-字段里偷改。不要用悬念替代整集回报。
-
-单集契约进入本阶段时必须包含哪些字段、缺失时怎么办，见
-[阶段契约](references/stage-contract.md) 的“单集契约与题材边界”。若只做原文规范化，
-跳过本步，不推断缺失剧情。
-从想法或 `write_standalone` 直接写作时，本阶段执行已接受的题材与钩子取向，不自行给项目
-归类题材；没有已接受取向时按同一节的做法处理，不为贴题材标签另造公式。
-
-### 3. 建立因果节拍
-
-复制 [beats.jsonl](assets/beats.jsonl)，让每条节拍回答：
-
-- 因为什么，谁现在要什么；
-- 谁或什么阻挡；
-- 观众能看见/听见的行动是什么；
-- 信息、权力、关系、情绪、物理状态或风险怎样变化；
-- 这个结果怎样制造下一股压力。
-
-若节拍开启新线，明确声明；不要把“然后发生”伪装成“因此发生”。数量与长短服从本集动作，而非统一模板。
-
-关系字段遵守同一约定：同一 `beats.jsonl` 内的前因、铺垫与兑现只写稳定
-`because_of_ids`/`setup_ids`/`payoff_ids`，避免自引用文件哈希；来自 episode map、
-前集或其他 owner artifact 的关系写 canonical `because_of_refs`/`setup_refs`/
-`payoff_refs`。`*_refs` 不能放裸 ID、路径字符串或复述文本。
-
-### 4. 先定场景功能，再写正文
-
-对每个场景先回答：为什么必须存在、谁的议程对撞、哪个可见动作承载冲突、哪里发生方向性变化、退出状态给下游留下什么。需要场景与可见行动方法时读取 [script-craft.md](references/script-craft.md)。
-
-写对白前读取 [dialogue-craft.md](references/dialogue-craft.md)，尤其检查人物策略、潜台词、信息争夺和声音差异。
-当声源、环境撤出、主动留白、画外存在或相邻场 sound bridge 承担戏剧转向时，读取
-[scene-sound-dramaturgy.md](references/scene-sound-dramaturgy.md)。剧本只拥有故事必需的声音事实，
-不替分镜设计逐镜声轨，也不用配乐替代表演。
-
-创作者指出某个兑现的呈现方式**可能需要更换**时，读取
-[substitutable-realization.md](references/substitutable-realization.md)，把功能、当前实现
-与备选实现分开写下来。**不要因此提前磨平任何内容**：先按最想要的拍法写，备选只在真的
-需要时启用。创作者没有标注时不做这一步，也不替创作者预判。
-
-长单集需要跨多轮续写、上下文即将切换或中断恢复时，读取
-[scene-handoff-capsule.md](references/scene-handoff-capsule.md)，只保存从当前剧本派生的
-最小场景交接；一次完成或局部修订时不要额外建立第二份摘要。
-
-### 5. 写唯一剧本源
-
-复制 [screenplay.md](assets/screenplay.md)，严格按 [screenplay-format.md](references/screenplay-format.md) 写：
-
-- `## EP001-SC001 内 · 地点 · 时间`；
-- 现在时、可见可表演的动作；
-- `角色（可表演提示）：台词`；
-- 仅对故事必需事实使用 `[VO]`、`[OS]`、`[SFX]`、`[画面文字]`、`[转场]`、`[连续性]`。
-
-识别创作者交来的行业通行方言（`△` 动作行、`【卡点】` 等）、做原文规范化映射，
-或按创作者要求以方言交付时，读取
-[production-format-dialect.md](references/production-format-dialect.md)。
-
-不要把镜头、资产全集、模型参数或提示词写进剧本。私密想法要转成行为、证据、空间后果，或明确标记的声音表达。
-
-正文发布后，用 [screenplay_index.py](scripts/screenplay_index.py) 生成只读派生索引；工具只识别格式契约中的场景标题、动作、对白、六种生产标签和注释，并保留 UTF-8 byte offsets、行范围与 source/content hash：
-
-```bash
-python3 <skill-dir>/scripts/screenplay_index.py 剧集/EP001/screenplay.md \
-  --output 剧集/EP001/screenplay-index.jsonl \
-  --source-ref 剧集/EP001/screenplay.md \
-  --speaker 葛晴 --speaker 游森
-```
-
-由 write owner 阅读当前剧本后，把本集实际说话者逐个传给 `--speaker`；索引器只做精确
-标签核对，不用冒号正则猜人物。未登记的 `前缀：内容` 写成
-`ambiguous_dialogue_or_action`，由 agent 判断应保留为动作、改用 `[画面文字]`，还是补入说话者清单。
-
-规范化预览尚未获 creator acceptance 时加 `--authority candidate`，使 meta、block 与
-source issue 的 refs 都保持 candidate；accepted 剧本发布后再以默认 accepted authority
-重建，不得只手改状态字段。
-
-修订时同时传 `--previous-index` 和 `--previous-source`。完全相同且唯一的邻近块复用 stable ID；拆分、合并或重复块歧义会写入 `mapping_review_request`，必须显式重映射。索引器绝不改写 `screenplay.md`。
-
-**每次修订剧本后必须重建 index**——下游（资产、图片提示词、分镜、视频提示词、审查）
-引用剧本一律绑定 `screenplay-index.jsonl` 的记录 ID，不直接绑定 `screenplay.md`
-整文件；未变 block 的记录 ID 与 hash 稳定，只有实际改动波及的记录会让下游标 `stale`。
-
-新写、续写或大修的剧本在索引后运行 `writer_quality.py check`，将 JSON 写到 `.short-drama/reports/writer-quality/<EP>.json` 并作为 `review-bundle --mechanical-report` 交给审查者。它的 findings 只定位合同无载体、义务无落点、近期动作复用与纯情绪提示；按 [写作质量闭环](references/writing-quality-loop.md) 定向修订相关场景/对白，保留已接受合同与不相关块，然后重建索引。不要把检查器当成审稿结论，也不要为消警而改变创作者有意的重复或作品节奏。
-
-### 5b. 需要配音本时（可选）
-
-创作者要为录音准备台词表时，复制
-[voice-record-sheet.jsonl.md](assets/voice-record-sheet.jsonl.md)。它是**剧本的投影，
-不是第二份台词权威**：每行逐字等于对应剧本块并绑定其 `hash`，要改词就改剧本再重新投影。
-
-录音顺序几乎从不是剧情顺序（通常按人物集中录），配音者失去的正是上下文，所以每行要补
-对谁说、接谁的话、此刻他知道什么、这一句要达成什么。写策略而不是情绪词——"愤怒"不可
-执行，"质问"可执行。多音字、生僻字与专名的读法在进棚前定完并留痕；棚里中断是最贵的。
-
-不需要录音时不生成这份文件。本套件不生成音频，也不从这份文本判断成品音质。
-
-写完后用 [voice_sheet_check.py](scripts/voice_sheet_check.py) 核对它仍然是投影：
-
-```bash
-python3 <skill-dir>/scripts/voice_sheet_check.py 剧集/EP001/voice-record-sheet.jsonl \
-  --index 剧集/EP001/screenplay-index.jsonl \
-  --screenplay 剧集/EP001/screenplay.md
-```
-
-脚本按块 ID 定位、切出剧本原字节、核对内容 hash，再逐字比对台词与说话人。剧本改过而
-索引没重建、或有人在表里顺手改了词，都会被单独报出来——**这两种情况下的配音本看起来
-和正常的一模一样**，而它被带进录音棚的那一刻正是没人能核对的时刻。
-
-只覆盖部分对白（按人物或按场次分表）是正常做法，未覆盖的块只报告不判错。
-
-### 6. 修订而不是抹平
-
-按顺序做所有者修订：
-
-1. **因果**：选择是否造成后果，转折是否由已存在的压力产生；
-2. **场景**：目标、反对、转向、退出是否清楚；
-3. **可拍性**：情绪和认知是否有演员能执行的载体；
-4. **对白**：每轮是否在争取、回避、试探、逼迫或重新定义关系；
-5. **生产事实**：必读文字、画外音、画外对白、关键声音和连续性变化是否有边界标签；
-6. **交接**：本集结束的知识、持物、伤势、关系和决定能否成为下一集准确开场。
-
-局部修订保留不相关段落。先展示语义差异与可能失效的下游产物，创作者接受后再发布。
-
-### 7. 交给独立审查
-
-所有者可以发现并修正问题，但不能给自己签发通过结论。完成结构检查后，把当前文件与哈希交给 `$short-drama-review`；若收到带证据的修订请求，只修改本技能拥有的单集卡、节拍或剧本，再请求复审。
-
-## 规则分级
-
-- **`structural_invariant`**：场景/块 ID、引用、已有生产标签语法、来源哈希与明确矛盾；
-  校验器可阻断。
-- **`reviewed_invariant`**：因果是否成立、场景是否真正转向、内心是否可表演、对白是否改变局面，
-  以及生产关键事实是否漏标；独立审查者须引用文本证据。
-- **`craft_default`**：进入得晚、退出得早、以选择和后果推动、用具体动作承载情绪；可说明理由覆盖。
-- **`taste_option`**：沉默、旁白、方言、打断、场景静动、句式节奏；遵从创作者选择。
-
-不要把统一的爆点安排、转折时刻、台词比例、字数、场景数或节拍数设为质量门槛。
-
-## 产物与边界
-
-本技能只拥有：
-
-- `剧集/<EP>/episode-card.json`（上游 pointer + write execution，或显式
-  `write_standalone` 契约；二者不并存）
+- `剧集/<EP>/episode-card.json`
 - `剧集/<EP>/beats.jsonl`
 - `剧集/<EP>/screenplay.md`
-- 由剧本生成的 `screenplay-index.jsonl`
-- `剧集/<EP>/voice-record-sheet.jsonl`（配音稿，逐行绑定剧本 block）
-- 规范化预览与语义修订差异
+- `剧集/<EP>/screenplay-index.jsonl`（由 finalize 确定性生成）
+- `剧集/<EP>/voice-record-sheet.jsonl`（需要配音本时）
 
-资产身份、分镜边界、图片/视频提示词及终审结论属于其他技能。本技能不生成媒体。
+## 修订纪律
+
+- 修订已有剧本时基于当前文件和稳定 block ID，不凭对话记忆重写整集。
+- 保留已接受合同和不相关块；映射歧义必须显式处理。
+- owner 可以自检和修改，但不能给自己签发 review 通过。
+- “只检查再决定是否修改”先交 `$short-drama-review`；收到 findings 后再定点修订。

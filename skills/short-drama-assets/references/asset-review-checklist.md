@@ -66,7 +66,7 @@ Creator 可用制作原因覆盖，例如需要逐件审批背景陈设；记录
 
 不得仅因 reviewer 偏好另一个选项而判失败。
 
-## E. Creator acceptance（独立 checkpoint）
+## E. Creator acceptance（独立状态）
 
 给创作者看的摘要必须列出：
 
@@ -81,9 +81,9 @@ Creator 可用制作原因覆盖，例如需要逐件审批背景陈设；记录
 分开记录，不能合成一个 `accepted: true`：build state、structural validation、creator
 acceptance、independent review、delivery gate。
 
-## C2 放行判据
+## M3 放行判据
 
 只有当本次范围内：结构检查通过；每个 occurrence 已决定；无 unresolved binding；
 continuity 可交接；creator 接受了新增/复用/变体/delta；且独立 review 无阻断 finding，
-才可将资产 checkpoint 视为 C2 完成。C2 后图片提示词与 storyboard 是并列分支，
-图片提示词不应成为分镜前置门槛。
+才可将单集资产增量视为 M3 完成。固定主线随后按 M4a 图片提示词 → M4b 分镜推进；
+单项直入可以只做某一分支，但不据此声称主线里程碑已经完成。

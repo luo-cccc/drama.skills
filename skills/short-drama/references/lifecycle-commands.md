@@ -15,6 +15,8 @@
 python3 <short-drama-skill-dir>/scripts/project_tool.py init <project> --title <title> [--language <zh-CN|...>] [--prompt-language <en|...>] [--aspect-ratio 9:16] [--max-clip-seconds 15]
 python3 <short-drama-skill-dir>/scripts/project_tool.py status <project>
 python3 <short-drama-skill-dir>/scripts/project_tool.py recover <project>
+python3 <short-drama-skill-dir>/scripts/project_tool.py prepare <project> --stage write --episode EP001 --intent create
+python3 <short-drama-skill-dir>/scripts/project_tool.py finalize <project> --packet .short-drama/work/task-packets/<TASK>.json [--publish --artifact-id EP001:script]
 python3 <short-drama-skill-dir>/scripts/project_tool.py publish <project> --owner short-drama-write --artifact-id EP001:script --output 剧集/EP001/screenplay.md=输入/EP001-screenplay.candidate.md [--input <upstream-path>=<sha256> ...] [--input-record <upstream-path>=<record-id> ...]
 python3 <short-drama-skill-dir>/scripts/project_tool.py decide <project> --artifact-id EP001:script --decision accepted
 python3 <short-drama-skill-dir>/scripts/project_tool.py accept-batch <project>
@@ -25,6 +27,27 @@ python3 <short-drama-skill-dir>/scripts/project_tool.py review <project> --artif
 python3 <short-drama-skill-dir>/scripts/project_tool.py package <project> --episode EP001 --include <accepted-path> [...] [--omit <accepted-path> ...] [--omission-evidence <creator-decision.json> ...]
 python3 <short-drama-skill-dir>/scripts/project_tool.py verify <project> --episode EP001
 ```
+
+### `prepare` / `finalize`
+
+`prepare` 支持 `novel-analyze`、`develop`、`write`、`assets`、`image-prompts`、
+`storyboard`、`video-prompts` 和 `review`。它不改变生命周期状态，只在
+`.short-drama/work/` 写任务胶囊和工作骨架。胶囊绑定 `short-drama.json`、state 和全部来源
+hash；任何一项变化后必须重新 prepare。
+
+`finalize` 只读取胶囊列出的工作文件。写作阶段自动生成 screenplay index；图片、关键帧和
+视频阶段使用 canonical fragments 编译 `generic_prompt` 与 Markdown 投影；分镜和视频阶段
+运行适用机械检查。只有显式指定 `--publish --artifact-id` 才调用公开 candidate 发布流程。
+
+例行审查可用：
+
+```text
+project_tool.py review-bundle <project> --episode EP001 --scope story_script --compact
+project_tool.py review-bundle <project> --episode EP001 --scope story_script --delta-from 审查/base-verdict.json
+```
+
+`--compact` 只压缩 JSON 空白，不删除证据。`--delta-from` 只包含与旧 verdict 的
+`reviewed_artifacts` hash 不同的目标。交付终审仍使用 `--scope full_episode` 的全量包。
 
 ### `init` 的输入约束
 
@@ -445,15 +468,18 @@ python3 <short-drama-skill-dir>/scripts/project_tool.py verify <project> --episo
 `provenance`（`creator_supplied` 或 `story_world_authored`）、`text_policy`
 （`visible_on_screen` 或 `fictional_interface_text`）、`allow_delivery`（必须为 `true`）。
 
-## 例行 EP 的执行预算
+## 例行 EP 的执行轮次
 
-单集从创作到交付的例行时间分配（在命令都已自动化后）：
+单集执行按模型读取和审查轮次控制，不写固定分钟数。实际耗时取决于模型、项目规模与修订量；
+下列顺序只约束输入范围和必要回合：
+
 批量执行的固定节奏（记录级绑定、候选目录生命周期、拓扑规划、base/delta 分离）与
 错误恢复速查见 [production-sop.md](production-sop.md)。
 
-- **创作与发布**（约 20 分钟）：写作 → `publish` → 索引/机械检查。CLI 全程不需要
-  手工 hash：`--target` 省略 hash、`--evidence-hash`/`--verdict-hash` 省略由工具现算。
-- **例行审查**（约 15–20 分钟，全程当前上下文，零子 agent）：
+- **创作与发布**：`prepare` → 只编辑任务工作文件 → `finalize` 编译/校验 → 显式发布。
+  CLI 全程不需要手工 hash：`--target` 省略 hash、`--evidence-hash`/`--verdict-hash`
+  省略时由工具现算。
+- **例行审查**（全程当前上下文，零子 agent）：
   1. 首审默认 L1.5 冷读（类型基准已建立后），只读 `review-bundle` 证据文件；
   2. 审查一次列全所有 findings（一个 findings JSONL），owner 一次改完所有问题再发布接受；
   3. 反审走 L2 `delta_verify`（当前上下文对照 base 结论逐条核销）；
@@ -465,5 +491,5 @@ python3 <short-drama-skill-dir>/scripts/project_tool.py verify <project> --episo
   fresh reviewer 覆盖全部范围（不按产物类型各起一个），再 `package` / `verify`。
 
 关键纪律：**不要**为"例行首审/反审"派 fresh 子 agent（冷读与 delta_verify 已覆盖）；
-fresh 只用于类型基准首审、越出派发范围的大改、交付终审三事件。一次 REVISE 就改全，
-把修订轮数压到 1——每多一轮就多一次反审成本。
+fresh 只用于类型基准首审、越出派发范围的大改、交付终审三事件。一次 REVISE 汇总同一
+目标集的 findings，减少重复读取和重复反审。

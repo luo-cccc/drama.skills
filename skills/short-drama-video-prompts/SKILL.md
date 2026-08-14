@@ -1,242 +1,51 @@
 ---
 name: short-drama-video-prompts
-description: 为已接受的短剧镜头和关键帧编写或修改可复制的通用视频提示词与运动规格。用户提到视频提示词、文生视频、图生视频动作、人物表演过程、运镜、对白口型、环境运动、镜头时长、起止状态或把分镜转成视频提示词时直接使用；只描述单个已编镜头内的运动、表演、摄影与声音，不生成视频，不调用模型或供应商接口，也不改写分镜边界。
-license: MIT
+description: 为已接受短剧镜头和关键帧编写逐镜运动规格、表演、运镜、声音、generation clip 与可选交付容器。用户要求视频提示词、图生视频动作、口型、环境运动、镜头时长或把分镜转成视频执行文本时使用；不生成视频，不调用供应商接口，不改变分镜边界。
 ---
 
 # 短剧视频提示词
 
-把分镜已经决定的一个镜头，写成按时间执行的动作、表演、摄影和声音。运动说明只实现起止边界，不能改写边界。
+## 快速入口
 
-## 先定位套件
-
-从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
-套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
-随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
-例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
-
-## 进入条件与权属
-
-- 可从已接受的镜头或关键帧直接进入，无需重新开发故事；先定位项目和版本一致的主技能。
-- 所有权、下游文件何时变为 `stale` 或项目状态不清时，读
-  [阶段契约](references/stage-contract.md) 的所有权边界；需要定位规则 ID
-  或解释审查问题时，读同一文件的本阶段规则表。
-- 输入至少包含状态为 `accepted` 的镜头、起始关键帧/边界、时长、连续性终点与对白/声音引用；未接受或 `stale` 时退回 `$short-drama-storyboard`（全链预览与播种临时绑定走下方 provisional 例外）。
-- 若创作者明确要求全链预览，或镜头/关键帧本身因绑定 `proposed` 播种记录而处于
-  provisional，可对状态为 `provisional`、但没有 `unresolved` 问题的镜头/关键帧
-  写候选运动说明；保留 `authority:candidate`，禁止声称已经 `accepted`、`approved` 或
-  `delivery-ready`，且不得进入交付容器。
-- 镜头的起点、终点、时长、对白、资产绑定和下一镜状态全部只读。运动规格只负责有序动作、表演过程、摄影与声音实现，以及派生的结束报告。
-- `short-drama.json#/format/generation_limits/max_clip_seconds` 是一次视频模型调用的上限，默认 15 秒；它限制生成片段，不改变影视镜头的叙事或剪辑边界。
-- 使用 `profile: motion`，逐项复用关键帧同一 generation asset/model/variant/View/fragment
-  ID+hash fingerprint 与绑定顺序，以 `continuity_lock` 加首尾边界、
-  动作、表演、摄影、声音和本镜排除项；不得重新总结资产身份或改写标准片段。
-- 视觉、声音和口型等审美选择读取 `short-drama.json#/creator_authority/{visual_direction,production_profile}`；
-  直接从本环节开始的项目若为 `unset`，就保留选择（不把默认配置写成已接受事实），
-  产物保持 `provisional`、不声称已接受形态约束，直到形态确定。
-- 先写不绑定供应商的通用文本。不得生成视频或音频、上传参考帧、创建远程执行任务、调用模型接口、轮询状态或宣称成片质量。
-
-## 按任务加载资料
-
-| 任务 | 必读资料 |
-|---|---|
-| 任意镜头运动说明/提示词 | [起点—变化—终点配方](references/motion-recipe.md) |
-| 单人/多人表演、注意交接、节奏或超载 | [表演弧与动作预算](references/performance-action-timing.md) |
-| 运镜、环境、对白、声音、边界冲突 | [摄影声音与连续性](references/camera-audio-continuity.md) |
-| 自检、独立复核、正反案例 | [审查量表与合成案例](references/review-and-fixtures.md) |
-| 生产端提示词写法、台词绑定、负面清单 | [生产提示词语法惯例](references/production-prompt-grammar.md) |
-| 分段交付、槽位职责、时长分配、交付路由与执行触发词 | [交付档案与槽位语义](references/delivery-profile.md) |
-| 一镜多次模型调用、片段覆盖与续接交接 | [生成片段模板](assets/generation-clip.jsonl.md) |
-| 多张参考图的用途、补拍或替代版范围 | [阶段契约](references/stage-contract.md) 的参考媒体与补拍 |
-
-规格使用 [运动规格模板](assets/motion-spec.jsonl.md)；末镜或下一集记录尚未建立时参考
-[末镜定位示例](assets/motion-terminal.example.jsonl)；可复制交付使用
-[Markdown 模板](assets/video-prompts.md)。只加载本次问题需要的资料。
+1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+2. 运行 `prepare <project> --stage video-prompts --episode EP001 --intent create|revise`。
+3. 先读任务胶囊，只打开当前 shots、keyframes、声音引用和连续性边界。
+4. 参考媒体、容器或所有权异常时才读
+   [stage-contract.md](references/stage-contract.md)。
 
 ## 工作流
 
-### 1. 先写“不能动的边框”
+1. 冻结 shot ID、起始关键帧、时长、起止状态和排除项；运动规格只能实现这些边界。
+2. 明确镜头真正发生的故事变化，保证动作量可在时长内完成。
+3. 按 [motion-recipe.md](references/motion-recipe.md) 写主体动作、表演弧、摄影、环境、声音、
+   timing plan 和结束报告。表演与动作时机需要细化时读
+   [performance-action-timing.md](references/performance-action-timing.md)。
+4. 不重复参考帧已说明的完整外貌、场景和光线，只保留运动中容易漂移的局部事实。
+5. 根据项目 `max_clip_seconds` 将长 shot 连续覆盖为 generation clips；片段无间隙、无重叠，
+   continuation 必须绑定上一片段授权输出观察。
+6. 只有创作者声明多镜容器时才建立 delivery container；切换只发生在成员 shot 边界。
+7. 运行 `finalize --packet ...`，确定性编译 motion prompt 和 `video-prompts.md`。
+8. 再运行 `motion_timing_check.py`、`generation_clip_check.py`；有容器时运行
+   `container_check.py`。
 
-建立只读的起止边界清单：
+跨镜摄影、声桥和口型连续性需要时读
+[camera-audio-continuity.md](references/camera-audio-continuity.md)。
+需要完整字段语法、交付容器规则或审查样例时才读
+[production-prompt-grammar.md](references/production-prompt-grammar.md)、
+[delivery-profile.md](references/delivery-profile.md)、
+[review-and-fixtures.md](references/review-and-fixtures.md)。
 
-- 镜头/关键帧准确的 `artifact/hash/field` 引用；
-- 时长，以及起点姿态、重心、目光、双手、持物和空间关系；
-- 分镜负责的结束姿态/状态与连续性终点；
-- 准确的对白、画外音、音效和声音引用；
-- 镜头目的、信息/情绪变化和下一镜交接（只用于核对）。
+## 产物
 
-任何来源冲突先停止。如果创作者要求延长时长、换结尾站位、删对白或改变下一镜开场，
-就向负责该内容的技能提出修改请求；不要在运动规格中覆盖。
+- `剧集/<EP>/storyboard/motion-specs.jsonl`
+- `剧集/<EP>/storyboard/generation-clips.jsonl`
+- `剧集/<EP>/storyboard/delivery-containers.jsonl`（可选）
+- `剧集/<EP>/storyboard/video-prompts.md`（由结构化源派生）
 
-### 2. 决定这个镜头真正发生什么变化
+## 边界
 
-用一句话写镜头内的运动目的：“观众在这几秒内看到或感到什么变化？”然后选择少量有因果顺序的事件：主体行动 → 可见反应或注意转移 → 到达终点。只加活动会冲淡表演。
-
-写逐镜文本前，跨镜头重读完整来源顺序，把每个有语义的动作、接收、声音变化和道具状态只放到
-它应发生的位置；上游串行事件不得因压缩而并发，也不得把后发生的事件挪到较早镜头。
-
-- `reviewed_invariant`：动作量必须让演员有时间完成镜头的故事变化；是否能完成由审查者结合当前资料判断，不用动词数或固定秒/动作公式硬挡。
-- `craft_default`：短镜头优先一个主要动作，加一个必要反应；复杂过程请求分镜拆镜或延长。
-- `taste_option`：克制、爆发、停顿、喜剧节奏等取决于角色和导演意图。
-
-### 3. 按七部分编写运动说明
-
-1. **起点 `start_anchor`**：只重述开动所需的姿态、重心、目光、手、持物和空间关系。
-2. **有序动作 `ordered_subject_motion`**：谁先做什么、方向/路径、物理接触与先后；不要用一串“同时”。
-3. **表演过程 `performance_arcs[]`（按需）**：只有承担可见变化的人进入；根据本镜实际需要写
-   trigger、receive、mask/visible leak、choice 或 landing，不把六项变成必填拍表。空镜、道具细节、
-   纯空间转场或只有物理动作时省略这两个字段；需要时从
-   [表演/注意交接片段](assets/performance.fragment.json) 插入统一结构，多人物注意真正交接时才写
-   `attention_handoffs[]`。
-4. **摄影机 `camera`**：一次有动机的移动，写起点、速度/节奏和终点；或明确固定机位。
-5. **环境与声音 `environment_motion/audio`**：只写有剧情和连续性依据的环境运动、对白、画外音、
-   环境声、音效和音乐意图；本镜 `shot_ref` 指向的 accepted scene plan 有 `sound_strategy` 时，
-   才逐镜投影其进入、撤出、距离、留白和 bridge，不在 motion 再保存第二条 plan ref。
-6. **时间 `timing_plan`**：用阶段/顺序为主；需要精确时间时，明确段落总和必须正好等于镜头时长——超出会被截断，不足的余量会被执行端用未经批准的动作填满。
-7. **结束报告 `end_report`**：说明当前描述怎样到达分镜负责的连续性终点；终点要求可见完成时，
-   写清动作接触、物件归属、位置或可观察结果，抽象的“处理、履行、完成”不能替代这些事实；
-   终点若只要求过程开始，也不得擅自推进到完成。结束报告只用于比较，不是新的权威来源。
-
-运动规格完成后建立 `generation-clips.jsonl`。它把一个 accepted shot 覆盖成连续的模型调用
-窗口，不产生新的剪辑镜头；每片段绑定同一 shot 与 motion，后续片段写明 planned boundary。
-不得把 `ordered_subject_motion` 的普通时间段直接当成生成片段。
-
-### 4. 不重复参考帧已经说明的内容
-
-如果绑定的参考帧已经说明人物外貌、服装、场景构图和光线，正文就聚焦“从此刻开始怎么变”。只重复动作执行中容易出错的局部事实，如“右手仍握住铜夹”。不要复制完整人物/场景设定，也不要用“与参考一致”替代必要的起点信息。
-
-`motion-specs.jsonl` 使用统一编译接口并调用 `prompt_compile.py` 的 `motion` profile。
-Markdown 保持“固定资产基线 / 状态增量 / 当前任务 / 排除项”的语义顺序，章节标题跟随
-`prompt_language`。
-固定主线每个已接受 shot 至少有一条 motion spec；每条 motion 的资产顺序、model/View/variant
-和 canonical fragment ID+hash 指纹必须与其 `shot_ref` 及首关键帧完全相同。每条记录固定使用
-`profile: motion`，不能在视频阶段替换资产、补建变体、重排片段或从 M2 允许集合中另选
-View/片段版本。
-
-每条参考绑定还要声明稳定 `slot_id`、显式 `order` 与 `role / may_control / must_not_control`。
-数组重排或插入参考不得改变已有槽位用途。身份参考不自动决定
-构图，构图或尺度参考不自动带入图中人物、服装、文字、道具和故事状态；先做像素/文字
-检查，再使用允许参考的内容。只有创作者/参考图权利人的可核对说明，或运行环境获授权
-后形成的输入参考图检查记录，才能给出结论；说明记录写 `creator_described`，视觉检查写
-`visually_inspected`，两者都没有时保持 `unverified`。这不是媒体生成
-或成片验收。
-
-### 5. 检查冲突与单镜头边界
-
-- `structural_invariant`：明确时间段相加正好用完镜头时长（既不超出也不留余量）；同一时间区间不能既固定机位又摇、移、手持，除非写清切换；引用必须可解析；`end_report` 必须匹配来源终点。
-- `reviewed_invariant`：动作物理可行、存在表演变化时弧线可见、摄影有动机、没有语义发明。
-- `craft_default`：环境和摄影只支持注意、压力、揭示、结盟或转场，不用来装饰每一镜。
-- `taste_option`：固定或移动机位、焦段语汇、口型精度和音乐密度由项目配置决定。
-
-最后串读整场：上一镜结束边界与下一镜冻结首帧逐项相等；所有切换继续沿用已接受工作侧、
-屏幕方向与可命名空间锚点。同一句对白在相邻镜头中的开始、延续、停顿与结束也必须接得上，
-不能在前镜结束后又无依据续说。同一句跨过多镜时，每镜显式说明画内/画外延续、停顿或结束，
-中间镜不能省略声音状态。任一处不一致先退回修正，不靠流畅措辞掩盖。
-
-一个已经设计好的镜头只保持一个剪辑边界。不要在镜头内部偷藏未声明的切镜；打包也不改变源镜头可以单独审查的要求。
-
-预览时从现有 shot/keyframe/boundary/dialogue/reference/config refs **派生**文本准备度，
-逐镜按实际声明的 scope 分别显示 `ready | blocked` 与真实 `blocking_gaps`；不把它写回 motion spec
-形成第二套状态。
-准备度只说明文本是否足以交给外部执行，绝不保证生成后的身份、表演、口型、混音、剪辑或市场效果。
-逐字台词缺失时，只阻断逐字台词时序、台词表演/口型可行性及“具体总时长可演”的判断；
-仍可预览不依赖逐字语速的候选构图、动作先后和相对节奏，不得自编台词。其他缺口同样只阻断
-其实际支持的交付判断。只有全部适用 scope 都为 `ready`，才可声称整体 `delivery-ready`。
-
-本环节新增的动作/表演、摄影、声音与相对节奏选择也按类别总括，不逐镜复述；只单列会改变
-信息时机、因果顺序、观众立场或表演所有权、可读文字、场尾落点、制作成本或回退路径的高影响例外。
-未被总括的新增选择要么删除，要么补入接受摘要。
-
-若创作者声明了多镜交付容器，一个容器可以按来源顺序承载若干连续镜头：此时切换只允许出现在成员镜头边界上，容器时长必须等于成员镜头已接受时长之和，镜头目的与逐镜可审查性不变。容器分层、成员资格与两级算术见 [delivery-profile.md](references/delivery-profile.md)。
-
-写完容器记录后用 [container_check.py](scripts/container_check.py) 做一次**全集对账**：
-
-```bash
-python3 <skill-dir>/scripts/container_check.py \
-  剧集/EP001/storyboard/delivery-containers.jsonl \
-  --shots 剧集/EP001/storyboard/shots.jsonl \
-  --motions 剧集/EP001/storyboard/motion-specs.jsonl
-```
-
-逐个容器都正确不代表全集的账是对的：一个镜头同时进两个容器会让全集时长凭空多一段，
-一个镜头谁都没装会让它无声消失——**两种错误在单容器视角下都看不见**。脚本做的是集合
-与算术比对：成员是否重复认领、成员是否属于本集、容器时长是否等于成员之和、容器加散镜
-是否正好等于全集总时长（`VID-15`）。
-
-`--motions` 打开 `VID-13` 的容器结构校验：成员 `order` 唯一连续、成员 `accepted_duration`
-等于其 `accepted_duration_ref` 指向的分镜值、`container_duration` 等于成员 `accepted_duration`
-之和、`motion_ref` 链回成员 `shot_ref` 一致、`binding_chain_equal` 须逐成员解析
-`location_binding_ref`/`asset_bindings_ref` 后相同才能为 `true`、`membership_basis` 三项
-都有结论。这些是记录自身的本地可证声明，脚本逐条对照 `shots.jsonl` 与 `motion-specs.jsonl` 的
-活内容核对，不依赖渲染文本。
-
-未装容器的散镜是合法的，脚本只报告不判错；时长尚未确定的镜头列在 `unmeasured_shots`
-并排除在总和之外，这样"还没做完"不会被当成"做错了"。
-
-若 `timing_plan` 写的是显式秒段，再用
-[motion_timing_check.py](scripts/motion_timing_check.py) 核 `VID-04` 的算术：
-
-```bash
-python3 <skill-dir>/scripts/motion_timing_check.py \
-  剧集/EP001/storyboard/motion-specs.jsonl \
-  --shots 剧集/EP001/storyboard/shots.jsonl
-```
-
-超出与不足都算违约，且不足的后果更重：未分配的余量不会渲染成静止画面，执行端会用
-没有上游来源的动作、表情或运镜把它填满。脚本还会报未声明的区间重叠、`declared_total`
-与实际覆盖不一致，以及 `boundary_refs.duration` 相对镜头已接受时长过期。
-`relative` 计时不做算术断言，列在 `relative_plans` 里报告而不是判过。
-
-随后用 [generation_clip_check.py](scripts/generation_clip_check.py) 核对模型调用边界：
-
-```bash
-python3 <skill-dir>/scripts/generation_clip_check.py \
-  剧集/EP001/storyboard/generation-clips.jsonl \
-  --shots 剧集/EP001/storyboard/shots.jsonl \
-  --motions 剧集/EP001/storyboard/motion-specs.jsonl \
-  --project short-drama.json
-```
-
-每个 accepted shot 必须从 0 秒连续覆盖到镜头终点，每个片段不超过项目配置上限。
-校验器阻断顺序错误、间隙、重叠、错误 motion 引用、交接五槽位不完整和未经项目许可的
-continuation。真实 continuation 还必须让上一片段 `output_observation_ref` 与当前 handoff 的
-观察引用完全一致；没有观察时保持 `independent`。
-
-若当前版本是局部补拍或替代实现，才增加 `coverage_scope` 并标明 `pickup | alternate`，
-按 [补拍/替代范围片段](assets/coverage-scope.fragment.json) 用同一文件内稳定的运动记录 ID
-说明母版和补充关系；每项原文要求都要对应到
-当前运动字段或说明去向。补拍默认只补充、不替代母版；运动规格只能提出替代请求，
-独立审查者在下游审查结论中绑定固定 `hash` 后决定，不能回写运动规格形成循环引用。
-
-若收到绑定准确 prompt/spec/reference/config 的项目生产观察，只修改诊断涉及的运动字段，并在
-修订提案中列出 `change_set`、`preserve_set` 和仍未知结果；不能把重复提交相同文本当修复，
-也不能把一次配置下的观察提升为通用动作、表演或运镜规则。
-
-### 6. 预览、接受与发布
-
-先向创作者展示起止边界摘要、动作/表演顺序、摄影/声音选择、时长警告和可复制提示词。接受后写：
-
-- `剧集/<EP>/storyboard/motion-specs.jsonl`：运动规格字段和只读来源引用；
-- `剧集/<EP>/storyboard/generation-clips.jsonl`：模型调用窗口、时长上限、片段顺序与交接；
-- `剧集/<EP>/storyboard/delivery-containers.jsonl`：**仅当项目声明了多镜交付容器时**，
-  记录容器成员顺序、各成员已接受时长的只读引用与容器时长，模板见
-  [delivery-container.jsonl.md](assets/delivery-container.jsonl.md)；
-- `剧集/<EP>/storyboard/video-prompts.md`：由已接受规格、容器记录和配方 `hash` 生成的文本版本。
-
-发布 `video-prompts.md` 时，工具核对当前 motion source hash 与逐镜编译正文，同时要求列全
-generation clip ID、clip 文件 hash 和已有 container ID；任何缓存漂移都会在 candidate 写入前阻断。
-
-自然语言改提示词时，先展示规格字段怎样变化和重新生成的文本预览；若改动触碰分镜或
-剧本负责的内容，保持当前文件不变，并把修改请求交给对应技能。跨文件发布遵循主技能的
-提交与恢复流程。
-
-## 完成标准
-
-- 提示词从准确的 `start_anchor` 出发，以明确顺序实现已确认终点，不改变时长、对白或下一镜；
-- 若本镜确有表演变化，表演有触发、处理与可见结果；动作量可行，摄影与环境/声音服务镜头目的；
-- 参考帧已知外观不被重复描述淹没，通用提示词可独立复制；
-- 交付文本只含要拍出来的画面内容：没有参考图文件名、版本号、内部标记、草图指代或任务备注；同一角色的参考绑定在每次提及处一致，不出现只绑一半的写法；
-- 本地结构检查后交 `$short-drama-review` 结合来源资料审查是否可执行、是否改写原意；
-- 没有媒体文件、供应商接口或远程任务字段、远端 ID 或“视频已生成”声明。
-- 编译结果、片段哈希和 manifest 完全一致；自由改写以 `BLK-PROMPT-COMPILE` 阻断。
+- 不在镜头内部偷藏切镜，不改变 shot 开始或结束边界。
+- 不补写台词、资产身份或剧情事件。
+- 文本准备度不等于生成成片质量。
+- 不生成媒体、上传参考帧、创建远程任务或轮询供应商。
+- 本技能不自行终审。

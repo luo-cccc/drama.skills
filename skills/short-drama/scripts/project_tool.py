@@ -6747,6 +6747,19 @@ def _publish_from_cli(args: argparse.Namespace) -> dict[str, Any]:
 
 REVIEW_BUNDLE_SCHEMA = "short-drama-review-bundle"
 REVIEW_BUNDLE_VERSION = 1
+REVIEW_SCOPES = frozenset(
+    {
+        "source_analysis",
+        "story_script",
+        "assets_continuity",
+        "image_prompts",
+        "storyboard_keyframes",
+        "video_prompts",
+        "full_episode",
+        "delivery_privacy",
+        "project_calibration",
+    }
+)
 
 
 def _mechanical_report_kinds(document: Mapping[str, Any]) -> set[str]:
@@ -7241,17 +7254,81 @@ def _creator_authority_summary(root: Path) -> dict[str, Any]:
 def _episode_targets(
     artifacts: Mapping[str, Any], episode: str
 ) -> dict[str, str]:
-    prefix = f"剧集/{episode}/"
+    prefixes = tuple(
+        f"{root_name}/{episode}/"
+        for root_name in (CANONICAL_ROOTS["episodes"], LEGACY_ROOTS["episodes"])
+    )
     targets: dict[str, str] = {}
     for record in artifacts.values():
         if not isinstance(record, dict):
             continue
         for relative, digest in _current_record_targets(record).items():
-            if relative.startswith(prefix):
+            if relative.startswith(prefixes):
                 targets[relative] = digest
     if not targets:
-        raise ValueError(f"no lifecycle targets found under {prefix}")
+        raise ValueError(f"no lifecycle targets found for {episode}")
     return dict(sorted(targets.items()))
+
+
+def _review_scope_matches(relative: str, scope: str) -> bool:
+    if scope in {"full_episode", "delivery_privacy", "project_calibration"}:
+        return True
+    normalized = _relative_path(relative)
+    owner = _expected_path_owner(normalized)
+    parts = PurePosixPath(normalized).parts
+    if scope == "source_analysis":
+        return "source-analysis" in parts or "source_analysis" in parts
+    if scope == "story_script":
+        return owner in {"short-drama-develop", "short-drama-write"}
+    if scope == "assets_continuity":
+        return owner == "short-drama-assets"
+    if scope == "image_prompts":
+        return owner == "short-drama-image-prompts"
+    if scope == "storyboard_keyframes":
+        return owner == "short-drama-storyboard"
+    if scope == "video_prompts":
+        return owner == "short-drama-video-prompts"
+    return False
+
+
+def _delta_review_targets(
+    root: Path,
+    expected: Mapping[str, str | None],
+    verdict_relative: str,
+) -> tuple[dict[str, str | None], dict[str, Any]]:
+    relative = _relative_path(verdict_relative)
+    verdict_path = _project_path(root, relative)
+    verdict = _json_loads(verdict_path.read_text(encoding="utf-8"))
+    if not isinstance(verdict, dict):
+        raise ValueError("delta verdict must be a JSON object")
+    reviewed = verdict.get("reviewed_artifacts")
+    if not isinstance(reviewed, list):
+        raise ValueError("delta verdict lacks reviewed_artifacts")
+    previous: dict[str, str] = {}
+    for item in reviewed:
+        if not isinstance(item, dict):
+            raise ValueError("delta verdict reviewed_artifacts are invalid")
+        path = item.get("path") or item.get("artifact")
+        digest = item.get("hash")
+        if isinstance(path, str) and isinstance(digest, str):
+            previous[_relative_path(path)] = digest
+    resolved = {
+        path: digest if digest is not None else _live_hash(_project_path(root, path))
+        for path, digest in expected.items()
+    }
+    changed = {
+        path: digest
+        for path, digest in resolved.items()
+        if previous.get(path) != digest
+    }
+    if not changed:
+        raise ValueError("delta review has no changed targets")
+    return changed, {
+        "verdict_path": relative,
+        "verdict_hash": sha256_file(verdict_path),
+        "review_id": verdict.get("review_id"),
+        "previous_target_count": len(previous),
+    }
 
 
 def build_review_bundle(
@@ -7262,6 +7339,9 @@ def build_review_bundle(
     label: str | None = None,
     output: str | None = None,
     mechanical_reports: Iterable[str] = (),
+    scope: str | None = None,
+    delta_from: str | None = None,
+    compact: bool = False,
 ) -> dict[str, Any]:
     """Collect verified evidence for a reviewer into one compact file.
 
@@ -7279,10 +7359,24 @@ def build_review_bundle(
     artifacts = state.get("artifacts")
     if not isinstance(artifacts, dict):
         artifacts = {}
+    normalized_scope = scope.strip().casefold() if isinstance(scope, str) else None
+    if normalized_scope is not None and normalized_scope not in REVIEW_SCOPES:
+        raise ValueError("review scope is invalid")
     expected: dict[str, str | None] = dict(targets)
     if episode:
         for relative, digest in _episode_targets(artifacts, episode).items():
             expected.setdefault(relative, digest)
+    if normalized_scope is not None:
+        expected = {
+            relative: digest
+            for relative, digest in expected.items()
+            if _review_scope_matches(relative, normalized_scope)
+        }
+        if not expected:
+            raise ValueError(f"review scope has no matching targets: {normalized_scope}")
+    delta_basis: dict[str, Any] | None = None
+    if delta_from is not None:
+        expected, delta_basis = _delta_review_targets(root, expected, delta_from)
     if not expected:
         raise ValueError("review bundle needs at least one --target or --episode")
 
@@ -7414,10 +7508,24 @@ def build_review_bundle(
         "targets": bundle_targets,
         "mechanical": mechanical,
     }
+    if normalized_scope is not None:
+        bundle["review_scope"] = normalized_scope
+    if delta_basis is not None:
+        bundle["delta_basis"] = delta_basis
+    bundle["serialization"] = "compact" if compact else "pretty"
     output_relative = output or f".short-drama/review-bundles/{review_id}.json"
     output_path = _project_path(root, output_relative)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = _json_dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    payload = (
+        _json_dumps(
+            bundle,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if compact
+        else _json_dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True)
+    ) + "\n"
     payload_bytes = payload.encode("utf-8")
     _atomic_bytes(output_path, payload_bytes)
     return {
@@ -7433,11 +7541,14 @@ def build_review_bundle(
             "status": mechanical["status"],
             "issues": len(mechanical["issues"]),
         },
+        "review_scope": normalized_scope,
+        "delta": delta_basis is not None,
+        "serialization": bundle["serialization"],
     }
 
 
 PIPELINE_VERSION = "2.0.1"
-SUITE_VERSION = "0.5.1"
+SUITE_VERSION = "0.6.0"
 CONTRACT_VERSION = "1.3.1-draft"
 PRODUCTION_FLOW_DEFAULTS: dict[str, Any] = {
     "pipeline_version": PIPELINE_VERSION,
@@ -7445,6 +7556,156 @@ PRODUCTION_FLOW_DEFAULTS: dict[str, Any] = {
     "allow_script_first": True,
 }
 MILESTONE_ORDER = ("M0", "M1", "M1.5a", "M1.5b", "M2", "M3", "M4a", "M4b", "M5", "M6", "M7")
+TASK_PACKET_SCHEMA = "short-drama-task-packet"
+TASK_PACKET_VERSION = 1
+TASK_STAGE_ALIASES = {
+    "novel": "novel-analyze",
+    "novel-analyze": "novel-analyze",
+    "develop": "develop",
+    "write": "write",
+    "assets": "assets",
+    "image": "image-prompts",
+    "image-prompts": "image-prompts",
+    "storyboard": "storyboard",
+    "video": "video-prompts",
+    "video-prompts": "video-prompts",
+    "review": "review",
+}
+TASK_STAGE_SPECS: dict[str, dict[str, Any]] = {
+    "novel-analyze": {
+        "owner": "short-drama-novel-analyze",
+        "milestone": "M0",
+        "source_owners": (),
+        "references": (
+            "short-drama-novel-analyze/references/adaptation-triage.md",
+            "short-drama-novel-analyze/references/chapter-extraction.md",
+        ),
+        "outputs": (),
+    },
+    "develop": {
+        "owner": "short-drama-develop",
+        "milestone": "M1",
+        "source_owners": ("short-drama-novel-analyze",),
+        "references": (
+            "short-drama-develop/references/story-craft.md",
+            "short-drama-develop/references/episode-design.md",
+        ),
+        "outputs": (
+            ("development", "creative-brief.md", "short-drama-develop/assets/creative-brief.md"),
+            ("development", "story-engine.md", "short-drama-develop/assets/story-engine.md"),
+            ("development", "episode-map.jsonl", "short-drama-develop/assets/episode-map.jsonl"),
+        ),
+    },
+    "write": {
+        "owner": "short-drama-write",
+        "milestone": "M2",
+        "source_owners": (
+            "short-drama-develop",
+            "short-drama-assets",
+            "short-drama-image-prompts",
+        ),
+        "references": (
+            "short-drama-write/references/writing-quality-loop.md",
+            "short-drama-write/references/script-craft.md",
+            "short-drama-write/references/dialogue-craft.md",
+        ),
+        "outputs": (
+            ("episode", "episode-card.json", "short-drama-write/assets/episode-card.json"),
+            ("episode", "beats.jsonl", "short-drama-write/assets/beats.jsonl"),
+            ("episode", "screenplay.md", "short-drama-write/assets/screenplay.md"),
+            ("episode", "screenplay-index.jsonl", None),
+        ),
+    },
+    "assets": {
+        "owner": "short-drama-assets",
+        "milestone": "M3",
+        "source_owners": ("short-drama-develop", "short-drama-write", "short-drama-assets"),
+        "references": (
+            "short-drama-assets/references/occurrence-extraction.md",
+            "short-drama-assets/references/identity-vs-variant.md",
+            "short-drama-assets/references/continuity-delta.md",
+        ),
+        "outputs": (
+            ("episode", "assets/occurrences.jsonl", "short-drama-assets/assets/occurrences.example.jsonl"),
+            ("episode", "assets/decisions.jsonl", "short-drama-assets/assets/decisions.example.jsonl"),
+            ("episode", "assets/continuity.jsonl", "short-drama-assets/assets/continuity.example.jsonl"),
+        ),
+    },
+    "image-prompts": {
+        "owner": "short-drama-image-prompts",
+        "milestone": "M4a",
+        "source_owners": ("short-drama-write", "short-drama-assets"),
+        "references": (
+            "short-drama-image-prompts/references/common-recipe.md",
+            "short-drama-image-prompts/references/production-sheet-recipes.md",
+        ),
+        "outputs": (
+            ("episode", "assets/image-prompt-specs.jsonl", "short-drama-image-prompts/assets/image-prompt-spec.jsonl.md"),
+            ("episode", "assets/image-prompts.md", None),
+        ),
+    },
+    "storyboard": {
+        "owner": "short-drama-storyboard",
+        "milestone": "M4b",
+        "source_owners": (
+            "short-drama-write",
+            "short-drama-assets",
+            "short-drama-image-prompts",
+        ),
+        "references": (
+            "short-drama-storyboard/references/production-shot-grammar.md",
+            "short-drama-storyboard/references/keyframe-craft.md",
+        ),
+        "outputs": (
+            ("episode", "storyboard/coverage.json", "short-drama-storyboard/assets/coverage-template.json"),
+            ("episode", "storyboard/shots.jsonl", "short-drama-storyboard/assets/shot-template.jsonl"),
+            ("episode", "storyboard/keyframes.jsonl", "short-drama-storyboard/assets/keyframe-template.jsonl"),
+            ("episode", "storyboard/keyframe-prompts.md", "short-drama-storyboard/assets/keyframe-prompts.md"),
+        ),
+    },
+    "video-prompts": {
+        "owner": "short-drama-video-prompts",
+        "milestone": "M5",
+        "source_owners": (
+            "short-drama-write",
+            "short-drama-assets",
+            "short-drama-image-prompts",
+            "short-drama-storyboard",
+        ),
+        "references": (
+            "short-drama-video-prompts/references/motion-recipe.md",
+            "short-drama-video-prompts/references/performance-action-timing.md",
+            "short-drama-video-prompts/references/camera-audio-continuity.md",
+        ),
+        "outputs": (
+            ("episode", "storyboard/motion-specs.jsonl", "short-drama-video-prompts/assets/motion-spec.jsonl.md"),
+            ("episode", "storyboard/generation-clips.jsonl", "short-drama-video-prompts/assets/generation-clip.jsonl.md"),
+            ("episode", "storyboard/delivery-containers.jsonl", "short-drama-video-prompts/assets/delivery-container.jsonl.md"),
+            ("episode", "storyboard/video-prompts.md", "short-drama-video-prompts/assets/video-prompts.md"),
+        ),
+    },
+    "review": {
+        "owner": "short-drama-review",
+        "milestone": "M6",
+        "source_owners": (
+            "short-drama-novel-analyze",
+            "short-drama-develop",
+            "short-drama-write",
+            "short-drama-assets",
+            "short-drama-image-prompts",
+            "short-drama-storyboard",
+            "short-drama-video-prompts",
+        ),
+        "references": (
+            "short-drama-review/references/review-method.md",
+            "short-drama-review/references/production-quality-gates.md",
+        ),
+        "outputs": (
+            ("review", "{episode}-findings.jsonl", "short-drama-review/assets/finding-template.jsonl"),
+            ("review", "{episode}-verdict.json", "short-drama-review/assets/verdict-template.json"),
+        ),
+    },
+}
 
 
 def _effective_production_flow(root: Path) -> dict[str, Any]:
@@ -9824,6 +10085,550 @@ def production_flow_status(
     }
 
 
+def _task_stage(value: str) -> str:
+    normalized = value.strip().casefold().replace("_", "-")
+    stage = TASK_STAGE_ALIASES.get(normalized)
+    if stage is None:
+        raise ValueError(
+            "stage must be one of: " + ", ".join(sorted(TASK_STAGE_SPECS))
+        )
+    return stage
+
+
+def _task_output_target(
+    roots: Mapping[str, str], kind: str, suffix: str, episode: str | None
+) -> str:
+    label = episode or "project"
+    rendered = suffix.format(episode=label)
+    if kind == "development":
+        return f"{roots['development']}/{rendered}"
+    if kind == "episode":
+        if episode is None:
+            raise ValueError("this stage requires --episode")
+        return f"{roots['episodes']}/{episode}/{rendered}"
+    if kind == "review":
+        return f"{roots['reviews']}/{rendered}"
+    raise ValueError(f"unknown task output kind: {kind}")
+
+
+def _task_path_matches_episode(relative: str, episode: str | None) -> bool:
+    parts = PurePosixPath(relative).parts
+    if not parts or _root_role(parts[0]) != "episodes":
+        return True
+    return episode is not None and len(parts) >= 2 and parts[1] == episode
+
+
+def _task_sources(
+    root: Path,
+    state: Mapping[str, Any],
+    *,
+    spec: Mapping[str, Any],
+    episode: str | None,
+    intent: str,
+) -> list[dict[str, Any]]:
+    raw_artifacts = state.get("artifacts")
+    artifacts = _effective_lifecycle_records(
+        root, raw_artifacts if isinstance(raw_artifacts, dict) else {}
+    )
+    source_owners = set(spec["source_owners"])
+    if intent in {"revise", "continue", "preview"}:
+        source_owners.add(str(spec["owner"]))
+    sources: list[dict[str, Any]] = []
+    for artifact_id, record in sorted(artifacts.items()):
+        owner = record.get("owner")
+        if owner not in source_owners:
+            continue
+        accepted = record.get("accepted_targets")
+        candidate = record.get("candidate_targets")
+        snapshot: Mapping[str, Any] | None = None
+        authority = "accepted"
+        if (
+            intent in {"revise", "continue", "preview"}
+            and owner == spec["owner"]
+            and isinstance(candidate, dict)
+            and candidate
+        ):
+            snapshot = candidate
+            authority = "candidate"
+        elif isinstance(accepted, dict) and accepted:
+            snapshot = accepted
+        if snapshot is None:
+            continue
+        for relative, digest in sorted(snapshot.items()):
+            if (
+                not isinstance(relative, str)
+                or not isinstance(digest, str)
+                or not _task_path_matches_episode(relative, episode)
+            ):
+                continue
+            sources.append(
+                {
+                    "artifact_id": artifact_id,
+                    "owner": owner,
+                    "path": relative,
+                    "hash": digest,
+                    "authority": authority,
+                }
+            )
+    return sources
+
+
+def _task_template_bytes(target: str, template: Path | None) -> bytes:
+    suffix = PurePosixPath(target).suffix.casefold()
+    if template is not None and template.is_file():
+        if not (suffix in {".json", ".jsonl"} and template.suffix.casefold() == ".md"):
+            return template.read_bytes()
+    if suffix == ".json":
+        return b"{}\n"
+    if suffix == ".jsonl":
+        return b""
+    return b"# TODO\n"
+
+
+def prepare_task_packet(
+    path: Path,
+    *,
+    stage: str,
+    episode: str | None = None,
+    intent: str = "create",
+    output: str | None = None,
+    materialize: bool = True,
+) -> dict[str, Any]:
+    """Create a bounded model-facing packet without changing lifecycle state."""
+
+    root = find_project(path)
+    normalized_stage = _task_stage(stage)
+    normalized_intent = intent.strip().casefold().replace("_", "-")
+    if normalized_intent not in {"create", "revise", "continue", "preview", "review"}:
+        raise ValueError("intent must be create, revise, continue, preview or review")
+    if episode is not None and EPISODE_ID_RE.fullmatch(episode) is None:
+        raise ValueError("episode must use EP001 form")
+    spec = TASK_STAGE_SPECS[normalized_stage]
+    needs_episode = any(item[0] == "episode" for item in spec["outputs"])
+    if needs_episode and episode is None:
+        episode = "EP001"
+
+    recovery = recover_project(root)
+    if recovery.get("blocked"):
+        raise ValueError("project has blocked recovery transactions")
+    state = _read_state(root)
+    layout = project_layout(root)
+    if layout.get("mode") == "mixed":
+        raise ValueError("project layout is mixed; resolve it before preparing work")
+    roots = layout["roots"]
+    sources = _task_sources(
+        root,
+        state,
+        spec=spec,
+        episode=episode,
+        intent=normalized_intent,
+    )
+    project_hash = sha256_file(root / PROJECT_FILE)
+    state_hash = sha256_file(root / STATE_FILE)
+    identity = _json_dumps(
+        {
+            "project": project_hash,
+            "state": state_hash,
+            "stage": normalized_stage,
+            "episode": episode,
+            "intent": normalized_intent,
+            "sources": [(item["path"], item["hash"]) for item in sources],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    task_id = "TASK-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    packet_relative = output or f".short-drama/work/task-packets/{task_id}.json"
+    work_root = f".short-drama/work/prepared/{task_id}"
+    skills_root = Path(__file__).resolve().parents[2]
+    outputs: list[dict[str, Any]] = []
+    for kind, suffix, template_relative in spec["outputs"]:
+        target = _task_output_target(roots, kind, suffix, episode)
+        work_path = f"{work_root}/{target}"
+        template = skills_root / template_relative if template_relative else None
+        if materialize and PurePosixPath(target).name != "screenplay-index.jsonl":
+            destination = _project_path(root, work_path)
+            if not destination.exists():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_bytes(destination, _task_template_bytes(target, template))
+        outputs.append(
+            {
+                "target": target,
+                "work_path": work_path,
+                "template": template_relative,
+                "derived": PurePosixPath(target).name in {
+                    "screenplay-index.jsonl",
+                    "image-prompts.md",
+                    "keyframe-prompts.md",
+                    "video-prompts.md",
+                },
+            }
+        )
+
+    flow = production_flow_status(root, episode=episode)
+    packet = {
+        "schema": TASK_PACKET_SCHEMA,
+        "version": TASK_PACKET_VERSION,
+        "task_id": task_id,
+        "created_at": utc_now(),
+        "stage": normalized_stage,
+        "owner": spec["owner"],
+        "milestone": spec["milestone"],
+        "episode": episode,
+        "intent": normalized_intent,
+        "snapshot": {
+            "project": {"path": PROJECT_FILE, "hash": project_hash},
+            "state": {"path": STATE_FILE.as_posix(), "hash": state_hash},
+        },
+        "project": _creator_authority_summary(root),
+        "pipeline": {
+            "current_milestone": flow["current_milestone"],
+            "next_action": flow["next_action"],
+            "blockers": flow["blockers"],
+        },
+        "sources": sources,
+        "outputs": outputs,
+        "references": [
+            {"path": relative, "load": "only_when_needed"}
+            for relative in spec["references"]
+        ],
+        "execution": {
+            "read_policy": "Read this packet first; open only listed sources and references needed for the current decision.",
+            "write_policy": "Edit only work_path files. Do not hand-edit lifecycle state or accepted project files.",
+            "finish": f"project_tool.py finalize <project> --packet {packet_relative}",
+        },
+    }
+    packet_path = _project_path(root, packet_relative)
+    atomic_json(packet_path, packet)
+    packet_bytes = packet_path.read_bytes()
+    return {
+        "task_id": task_id,
+        "packet_path": packet_relative,
+        "packet_hash": sha256_bytes(packet_bytes),
+        "packet_chars": len(packet_bytes.decode("utf-8")),
+        "stage": normalized_stage,
+        "episode": episode,
+        "sources": len(sources),
+        "outputs": len(outputs),
+        "materialized": materialize,
+    }
+
+
+def _load_task_packet(root: Path, packet_relative: str) -> tuple[Path, dict[str, Any]]:
+    relative = _relative_path(packet_relative, allow_operations=True)
+    packet_path = _project_path(root, relative)
+    packet = _json_loads(packet_path.read_text(encoding="utf-8"))
+    if not isinstance(packet, dict):
+        raise ValueError("task packet must be a JSON object")
+    if packet.get("schema") != TASK_PACKET_SCHEMA or packet.get("version") != TASK_PACKET_VERSION:
+        raise ValueError("task packet schema/version is unsupported")
+    snapshot = packet.get("snapshot")
+    if not isinstance(snapshot, dict):
+        raise ValueError("task packet has no snapshot")
+    for key in ("project", "state"):
+        reference = snapshot.get(key)
+        if not isinstance(reference, dict):
+            raise ValueError(f"task packet snapshot lacks {key}")
+        live = sha256_file(_project_path(root, str(reference.get("path"))))
+        if live != reference.get("hash"):
+            raise ValueError(f"task packet is stale: {key} changed")
+    for source in packet.get("sources", []):
+        if not isinstance(source, dict):
+            raise ValueError("task packet source is invalid")
+        if _live_hash(_project_path(root, str(source.get("path")))) != source.get("hash"):
+            raise ValueError(f"task packet is stale: source changed: {source.get('path')}")
+    return packet_path, packet
+
+
+def _task_compile_prompt_records(
+    root: Path, packet: Mapping[str, Any], outputs: Mapping[str, Path]
+) -> list[str]:
+    stage = packet.get("stage")
+    profiles = {
+        "image-prompts": ("image-prompt-specs.jsonl", "asset_board"),
+        "storyboard": ("keyframes.jsonl", "keyframe"),
+        "video-prompts": ("motion-specs.jsonl", "motion"),
+    }
+    selected = profiles.get(str(stage))
+    if selected is None:
+        return []
+    source_name, profile = selected
+    source = next((path for target, path in outputs.items() if PurePosixPath(target).name == source_name), None)
+    if source is None or not source.is_file():
+        return [f"missing prompt source: {source_name}"]
+    layout = project_layout(root)
+    fragments = _project_path(
+        root, f"{layout['roots']['bible']}/generation/canonical-fragments.jsonl"
+    )
+    if not fragments.is_file():
+        return ["canonical-fragments.jsonl is unavailable"]
+    compiler_path = (
+        Path(__file__).resolve().parents[2]
+        / "short-drama-image-prompts/scripts/prompt_compile.py"
+    )
+    module = _load_check_module("prompt_compile_task", compiler_path)
+    try:
+        fragment_records = module.load_fragments(fragments)
+        records = _jsonl_records(source.read_bytes(), source.name)
+        compiled = [
+            module.compile_record(record, fragment_records, expected_profile=profile)
+            for record in records
+        ]
+        payload = "\n".join(
+            _json_dumps(item, ensure_ascii=False, sort_keys=True) for item in compiled
+        ) + "\n"
+        _atomic_bytes(source, payload.encode("utf-8"))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return [f"prompt compilation failed: {error}"]
+    return []
+
+
+def _render_task_prompt_markdown(
+    packet: Mapping[str, Any], outputs: Mapping[str, Path]
+) -> list[str]:
+    stage = str(packet.get("stage"))
+    definitions = {
+        "image-prompts": ("image-prompt-specs.jsonl", "image-prompts.md", "spec_id"),
+        "storyboard": ("keyframes.jsonl", "keyframe-prompts.md", "keyframe_id"),
+        "video-prompts": ("motion-specs.jsonl", "video-prompts.md", "motion_id"),
+    }
+    selected = definitions.get(stage)
+    if selected is None:
+        return []
+    source_name, markdown_name, identity_key = selected
+    source = next((path for target, path in outputs.items() if PurePosixPath(target).name == source_name), None)
+    destination = next((path for target, path in outputs.items() if PurePosixPath(target).name == markdown_name), None)
+    if source is None or destination is None or not source.is_file():
+        return [f"cannot render {markdown_name}: source or destination is missing"]
+    try:
+        source_bytes = source.read_bytes()
+        records = _jsonl_records(source_bytes, source.name)
+        lines = [f"# {markdown_name}", "", f"source_sha256: `{sha256_bytes(source_bytes)}`", ""]
+        for record in records:
+            identity = record.get(identity_key)
+            prompt = record.get("generic_prompt")
+            if not isinstance(identity, str) or not isinstance(prompt, str):
+                raise ValueError(f"record lacks {identity_key} or generic_prompt")
+            lines.extend((f"## {identity}", "", prompt, ""))
+        if stage == "video-prompts":
+            for sibling_name, sibling_id in (
+                ("generation-clips.jsonl", "clip_id"),
+                ("delivery-containers.jsonl", "container_id"),
+            ):
+                sibling = next(
+                    (
+                        path
+                        for target, path in outputs.items()
+                        if PurePosixPath(target).name == sibling_name
+                    ),
+                    None,
+                )
+                if sibling is None or not sibling.is_file():
+                    if sibling_name == "generation-clips.jsonl":
+                        raise ValueError("generation-clips.jsonl is missing")
+                    continue
+                sibling_bytes = sibling.read_bytes()
+                lines.extend((f"## {sibling_name}", ""))
+                if sibling_name == "generation-clips.jsonl":
+                    lines.append(f"source_sha256: `{sha256_bytes(sibling_bytes)}`")
+                for record in _jsonl_records(sibling_bytes, sibling.name):
+                    lines.append(f"- {record.get(sibling_id, '<unknown>')}")
+                lines.append("")
+        _atomic_bytes(destination, ("\n".join(lines).rstrip() + "\n").encode("utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        return [f"derived Markdown rendering failed: {error}"]
+    return []
+
+
+def _task_mechanical_issues(
+    root: Path, packet: Mapping[str, Any], outputs: Mapping[str, Path]
+) -> list[str]:
+    stage = str(packet.get("stage"))
+    by_name = {PurePosixPath(target).name: path for target, path in outputs.items()}
+    findings: list[dict[str, Any]] = []
+    try:
+        if stage == "storyboard":
+            module = _load_check_module(
+                "storyboard_check_task",
+                Path(__file__).resolve().parents[2]
+                / "short-drama-storyboard/scripts/storyboard_check.py",
+            )
+            result = module.check(
+                by_name["coverage.json"],
+                by_name["shots.jsonl"],
+                by_name.get("keyframes.jsonl"),
+                root / PROJECT_FILE,
+            )
+            findings.extend(result.get("findings", []))
+        elif stage == "video-prompts":
+            shots_source = next(
+                (
+                    _project_path(root, str(source["path"]))
+                    for source in packet.get("sources", [])
+                    if isinstance(source, dict)
+                    and PurePosixPath(str(source.get("path"))).name == "shots.jsonl"
+                ),
+                None,
+            )
+            if shots_source is None or not shots_source.is_file():
+                return ["video mechanical checks require an accepted shots.jsonl source"]
+            shots = _jsonl_records(shots_source.read_bytes(), shots_source.name)
+            motions = _jsonl_records(
+                by_name["motion-specs.jsonl"].read_bytes(), "motion-specs.jsonl"
+            )
+            clips = _jsonl_records(
+                by_name["generation-clips.jsonl"].read_bytes(),
+                "generation-clips.jsonl",
+            )
+            timing = _load_check_module(
+                "motion_timing_task",
+                Path(__file__).resolve().parents[2]
+                / "short-drama-video-prompts/scripts/motion_timing_check.py",
+            ).check(motions, shots)
+            findings.extend(timing.get("findings", []))
+            clip_result = _load_check_module(
+                "generation_clip_task",
+                Path(__file__).resolve().parents[2]
+                / "short-drama-video-prompts/scripts/generation_clip_check.py",
+            ).check(
+                clips,
+                shots,
+                motions,
+                _json_loads((root / PROJECT_FILE).read_text(encoding="utf-8")),
+            )
+            findings.extend(clip_result.get("findings", []))
+            containers_path = by_name.get("delivery-containers.jsonl")
+            if containers_path is not None and containers_path.is_file():
+                containers = _jsonl_records(
+                    containers_path.read_bytes(), "delivery-containers.jsonl"
+                )
+                if containers:
+                    container_result = _load_check_module(
+                        "container_check_task",
+                        Path(__file__).resolve().parents[2]
+                        / "short-drama-video-prompts/scripts/container_check.py",
+                    ).reconcile(containers, shots, motions)
+                    findings.extend(container_result.get("findings", []))
+    except (KeyError, OSError, UnicodeError, ValueError) as error:
+        return [f"mechanical validation failed: {error}"]
+    return [
+        f"{finding.get('code', 'CHECK')}: {finding.get('message', 'validation failed')}"
+        for finding in findings
+        if isinstance(finding, dict)
+    ]
+
+
+def finalize_task_packet(
+    path: Path,
+    *,
+    packet_relative: str,
+    artifact_id: str | None = None,
+    publish: bool = False,
+) -> dict[str, Any]:
+    """Compile and validate prepared outputs, optionally publishing one candidate."""
+
+    root = find_project(path)
+    _packet_path, packet = _load_task_packet(root, packet_relative)
+    output_entries = packet.get("outputs")
+    if not isinstance(output_entries, list):
+        raise ValueError("task packet outputs are invalid")
+    output_paths: dict[str, Path] = {}
+    for entry in output_entries:
+        if not isinstance(entry, dict):
+            raise ValueError("task packet output entry is invalid")
+        target = _relative_path(str(entry.get("target")))
+        work_path = _relative_path(str(entry.get("work_path")), allow_operations=True)
+        output_paths[target] = _project_path(root, work_path)
+
+    issues: list[str] = []
+    if packet.get("stage") == "write":
+        screenplay = next(
+            (
+                source
+                for target, source in output_paths.items()
+                if PurePosixPath(target).name == "screenplay.md"
+            ),
+            None,
+        )
+        index_entry = next(
+            (
+                (target, source)
+                for target, source in output_paths.items()
+                if PurePosixPath(target).name == "screenplay-index.jsonl"
+            ),
+            None,
+        )
+        if screenplay is not None and screenplay.is_file() and index_entry is not None:
+            module = _load_check_module(
+                "screenplay_index_task",
+                Path(__file__).resolve().parents[2]
+                / "short-drama-write/scripts/screenplay_index.py",
+            )
+            try:
+                module.build_index(
+                    screenplay,
+                    index_entry[1],
+                    source_ref=index_entry[0].replace("screenplay-index.jsonl", "screenplay.md"),
+                    authority="candidate",
+                )
+            except (OSError, UnicodeError, ValueError) as error:
+                issues.append(f"screenplay index failed: {error}")
+
+    issues.extend(_task_compile_prompt_records(root, packet, output_paths))
+    issues.extend(_render_task_prompt_markdown(packet, output_paths))
+    candidate_outputs: dict[str, bytes] = {}
+    owner = str(packet.get("owner"))
+    for target, source in output_paths.items():
+        if not source.is_file():
+            issues.append(f"missing prepared output: {source.relative_to(root).as_posix()}")
+            continue
+        try:
+            content = source.read_bytes()
+            _validate_publication_layout(target, owner=owner)
+            _validate_candidate_content(target, content)
+            candidate_outputs[target] = content
+        except (OSError, UnicodeError, ValueError) as error:
+            issues.append(f"{target}: {error}")
+    if not issues:
+        try:
+            _validate_compiled_prompt_outputs(root, candidate_outputs)
+        except (OSError, UnicodeError, ValueError) as error:
+            issues.append(str(error))
+    if not issues:
+        issues.extend(_task_mechanical_issues(root, packet, output_paths))
+
+    result: dict[str, Any] = {
+        "task_id": packet.get("task_id"),
+        "stage": packet.get("stage"),
+        "episode": packet.get("episode"),
+        "status": "pass" if not issues else "fail",
+        "issues": issues,
+        "outputs": [
+            {"target": target, "work_path": source.relative_to(root).as_posix()}
+            for target, source in sorted(output_paths.items())
+        ],
+    }
+    if publish:
+        if issues:
+            raise ValueError("cannot publish a task packet with validation issues")
+        if not artifact_id:
+            raise ValueError("--artifact-id is required with --publish")
+        input_hashes = {
+            str(source["path"]): str(source["hash"])
+            for source in packet.get("sources", [])
+            if isinstance(source, dict)
+        }
+        result["publication"] = publish_candidate(
+            root,
+            owner=owner,
+            artifact_id=artifact_id,
+            outputs=candidate_outputs,
+            input_hashes=input_hashes,
+        )
+    return result
+
+
 def set_production_flow(
     path: Path, changes: Mapping[str, str]
 ) -> dict[str, Any]:
@@ -9910,6 +10715,41 @@ def build_parser() -> argparse.ArgumentParser:
         dest="flow_settings",
         help="KEY=VALUE override; repeat. Keys: enforcement, allow_script_first.",
     )
+
+    prepare = subparsers.add_parser(
+        "prepare",
+        help=(
+            "Create a compact, hash-bound task packet and optional working "
+            "skeletons so the model reads only the current stage slice."
+        ),
+    )
+    prepare.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    prepare.add_argument("--stage", required=True, choices=sorted(TASK_STAGE_SPECS))
+    prepare.add_argument("--episode", default=None)
+    prepare.add_argument(
+        "--intent",
+        default="create",
+        choices=("create", "revise", "continue", "preview", "review"),
+    )
+    prepare.add_argument("--output", default=None)
+    prepare.add_argument(
+        "--materialize",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Create working skeleton files beside the packet (default on).",
+    )
+
+    finalize = subparsers.add_parser(
+        "finalize",
+        help=(
+            "Compile deterministic derivatives and validate prepared task "
+            "outputs; optionally publish them as one candidate."
+        ),
+    )
+    finalize.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    finalize.add_argument("--packet", required=True)
+    finalize.add_argument("--artifact-id", default=None)
+    finalize.add_argument("--publish", action="store_true")
 
     upgrade_flow = subparsers.add_parser(
         "upgrade-flow",
@@ -10119,6 +10959,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Expand to every lifecycle target under 剧集/<EP>/.",
     )
     review_bundle.add_argument("--output", default=None)
+    review_bundle.add_argument("--scope", choices=sorted(REVIEW_SCOPES), default=None)
+    review_bundle.add_argument(
+        "--delta-from",
+        default=None,
+        help="Only include targets whose live hash differs from this prior verdict.",
+    )
+    review_bundle.add_argument(
+        "--compact",
+        action="store_true",
+        help="Write minified JSON without removing review evidence.",
+    )
     review_bundle.add_argument(
         "--mechanical-report",
         action="append",
@@ -10218,6 +11069,22 @@ def main(argv: list[str] | None = None) -> int:
             if result["enforcement"] == "strict" and result["blockers"]:
                 return 3
             return 0
+        elif args.command == "prepare":
+            result = prepare_task_packet(
+                args.path,
+                stage=args.stage,
+                episode=args.episode,
+                intent=args.intent,
+                output=args.output,
+                materialize=args.materialize,
+            )
+        elif args.command == "finalize":
+            result = finalize_task_packet(
+                args.path,
+                packet_relative=args.packet,
+                artifact_id=args.artifact_id,
+                publish=args.publish,
+            )
         elif args.command == "upgrade-flow":
             result = upgrade_project_flow(args.path)
         elif args.command == "recover":
@@ -10322,6 +11189,9 @@ def main(argv: list[str] | None = None) -> int:
                 label=args.label,
                 output=args.output,
                 mechanical_reports=args.mechanical_reports,
+                scope=args.scope,
+                delta_from=args.delta_from,
+                compact=args.compact,
             )
         elif args.command == "review-batch":
             result = review_verdicts_batch(

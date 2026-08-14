@@ -11,31 +11,22 @@
 
 ## 最新更新
 
-### 2026-08-14 — 0.5.1
+### 2026-08-15 — 0.6.0
 
-- 修复固定流程闭环：M1 必须逐项接受三份开发产物，`package` 必须在 M2–M6 全部完成后执行，
-  经创作者批准省略的产物会作为已结算交付推进 M7。
-- M3 剧本引用统一使用 index 文件 hash 与 block ID，分拆发布的 occurrences、decisions、
-  continuity 可在一次批量接受中完成，并与 pipeline 使用同一套门禁。
-- 未改动的剧本 block 不再因其它段落修订、位置移动或父文件 hash 更新而连锁失效；自动记录
-  绑定无法唯一解析时安全退回整文件绑定，显式绑定仍保持严格校验。
-- `accept-batch` 会按依赖关系多轮推进；`decide --force` 保留旧决定并写入可审计的替代证据，
-  不再因覆盖证据文件导致下游 hash 漂移。
-- 支持直接发布已位于目标路径的候选文件；资产基线允许明确为空的可选特征集合；标准提示
-  片段库可由结构化源确定性导出，不再需要手工拼装 Markdown。
-- 派生 Markdown 现在绑定当前结构化源 hash，并逐项包含编译文本/片段、generation clip 与容器 ID；
-  自由改写、漏项、换版或过期缓存会在发布前阻断。
-- generation clip 的 planned boundary 必须包含姿态、位置、视线、双手持物和可见状态；真实
-  continuation 必须绑定上一片段的授权输出观察。clip 单文件审查也会运行 VID-22 机械校验。
-- `asset-baseline-bundle.json` 新增 shot → motion → generation clip 和可选 delivery container
-  执行链摘要。pipeline 升至 2.0.1，套件升至 0.5.1，契约升至 `1.3.1-draft`。
-- 文档按入口、流程、数据流、命令、契约和维护重新分层；新增长篇输入到交付、结构化权威到
-  派生 Markdown、长 shot 到 15 秒 generation clip 的端到端消费说明。
-- 写作阶段新增私有写前包与可持久化质量报告：连续项目从已接受的分集地图读取合同与近期剧本，
-  `write_standalone` 从单集卡读取；报告随 `review-bundle` 交给独立审查。连续地图同时可用
-  故事引擎的 Hook 账本核对稳定 ID、兑现计划与终态，避免地图和账本分别漂移。
+- 九个 `SKILL.md` 改为渐进加载入口，模型侧正文从约 140 KB 降到约 28 KB；子技能不再
+  读取套件清单，安装完整性统一交给 `preflight`。
+- 新增 `prepare` 任务胶囊：绑定项目、状态和来源 hash，只列当前阶段需要的输入、按需参考、
+  工作路径与输出骨架，来源变化后旧胶囊自动失效。
+- 新增 `finalize`：确定性生成 screenplay index，编译图片/关键帧/视频 prompt 与派生 Markdown，
+  运行适用机械检查，并可显式发布为一个 candidate。
+- `review-bundle` 新增 `--scope`、`--delta-from` 和 `--compact`，例行审查只读取当前范围或
+  实际变化；交付终审仍要求完整整集证据。
+- 新增 `skill_perf_audit.py` 与性能预算回归。套件升级到 0.6.0，提示配方升级到
+  `1.2.0-draft`；产物契约与 pipeline 版本保持不变。
+- 文档入口统一到 M0–M7、`preflight`、`prepare`、`finalize`；移除旧 C0–C5 检查点、
+  重复预检说明和静态耗时估计。
 
-完整记录见 [发布说明](docs/releases/release-notes.md)。
+完整历史保留在 [发布说明](docs/releases/release-notes.md)。
 
 ## 技能清单
 
@@ -54,7 +45,7 @@
 ## 目录结构
 
 每个技能都是一个标准 skill 包：`SKILL.md`（YAML frontmatter：`name` /
-`description` / `license`）+ 可选的 `scripts/`、`references/`、`assets/`。
+`description`）+ 可选的 `scripts/`、`references/`、`assets/`。
 
 ```text
 video.skills/
@@ -181,6 +172,8 @@ python3 tools/update_suite_manifest.py
   非连续断点、批量合并、幂等重放、严格 JSON 和异常时不覆盖旧候选；
 - **原著分析测试**（`test_novel_index.py`）：中文章号、目录识别、分卷重号、来源复验、
   全书抽样、覆盖率、所有权、旧代码页输出和严格 JSON；
+- **任务胶囊与文档一致性测试**：任务包大小、快照过期拒绝、派生索引、scoped/delta bundle、
+  技能上下文预算、相对链接和当前 M0–M7 文档约束；
 - **Dashboard 前端测试**（`test_dashboard_app.js`）：内容分组、创作者可见投影、状态文案、
   JSONL 容错和保存状态等纯函数。
 
@@ -250,7 +243,8 @@ selector 会静默退回整文件绑定；显式 `--input-record` 仍严格报�
 审查全程当前上下文（首审冷读 → REVISE 一次改全 → delta_verify 反审，
 `review-batch --episode` 一次应用）；fresh 子 agent 只保留类型基准首审、越界大改、
 交付终审三事件，且终审整集一次覆盖。
-例行单集创作 + 审查约 35–40 分钟（不含交付终审，后者另需 10–20 分钟）。
+
+实际耗时不写入文档承诺；以任务胶囊字符数、模型读取范围、工具调用轮次和回归审计结果衡量。
 
 创作台 Dashboard 仅支持 macOS/Linux；Windows 上使用下面的 CLI 工作流。
 
@@ -270,13 +264,15 @@ python3 skills/short-drama/scripts/project_tool.py pipeline <project>    # pipel
 | `init` | 初始化最小项目 |
 | `status` | 生命周期与恢复摘要 |
 | `recover` | 恢复中断事务 |
+| `prepare` | 生成当前阶段的紧凑任务胶囊、精确来源清单和工作骨架 |
+| `finalize` | 编译派生产物并运行阶段校验；可显式发布 candidate |
 | `upgrade-flow` | 旧项目完成 M1.5 后升级到 pipeline 2.0 |
 | `publish` | 发布 candidate |
 | `accept` | 记录创作者接受（单个产物；`--target` 与 `--evidence-hash` 可省略，工具从快照/磁盘现算） |
 | `decide` | 从候选快照生成合规的接受决定文件；委托决定必须绑定 creator delegation evidence |
 | `unpublish` | 撤销发布但未接受的 artifact 记录（已接受产物受保护） |
 | `accept-batch` | 一次应用磁盘上全部已记录的接受决定（整批生产） |
-| `review-bundle` | L1 审查前打包已验证证据，fresh reviewer 只读一份文件 |
+| `review-bundle` | 按 scope/full episode 打包证据，支持 compact 与 delta 复核 |
 | `review` | 记录独立审查结论（L1 fresh / L1.5 冷读 / L2 delta_verify；`--verdict-hash` 可省略） |
 | `review-batch` | 一次应用磁盘上全部已写入的审查结论（`--episode` 限定单集） |
 | `package` | 交付打包（只收 accepted + L1 fresh 终审；要求 accepted delivery_surface，省略项须 creator evidence） |

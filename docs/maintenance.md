@@ -15,6 +15,7 @@
 | 测试矩阵 | `.github/workflows/suite.yml` |
 | 用户可见变更 | `docs/releases/release-notes.md` 与 README 的“最新更新” |
 | 文档入口与权威路由 | `docs/README.md`；发布套件内的数据流入口为 `workflow-dataflow.md` |
+| 模型侧技能上下文预算 | `tools/skill_perf_audit.py` 与 `tests/test_skill_perf_audit.py` |
 
 不要在文档中手写一份独立命令列表或版本表后让它自行漂移。参数以 `--help` 为准，
 版本由自动化测试核对，文件哈希由清单生成器维护。
@@ -35,6 +36,7 @@ python tools/update_suite_manifest.py
 python -m compileall -q skills tools tests
 ruff check skills tools tests
 python -m unittest discover -s tests -v
+python tools/skill_perf_audit.py
 node --check skills/short-drama/assets/dashboard/app.js
 node tests/test_dashboard_app.js
 python skills/short-drama/scripts/suite_verify.py --no-cache
@@ -104,5 +106,6 @@ Node 20 前端检查及套件全量哈希验证；独立 lint job 使用固定�
 1. 全部本地验证命令通过。
 2. 新行为有回归测试，用户可见变化已写入发布说明。
 3. 文档中的相对链接可解析，项目命令说明与 `project_tool.py --help` 一致。
-4. 清单已在最后一次 `skills/**` 修改之后生成。
-5. 工作区不包含应忽略的生成缓存或临时项目产物。
+4. README“最新更新”只保留最新日期块；完整历史只写入 release notes。
+5. 清单已在最后一次 `skills/**` 修改之后生成。
+6. 工作区不包含应忽略的生成缓存或临时项目产物。

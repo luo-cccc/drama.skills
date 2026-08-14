@@ -1,8 +1,7 @@
 # 短剧套件执行速查（模型侧例行任务用）
 
-例行任务的单页操作手册：先读本页与命中技能的 `SKILL.md`，其余参考只在命令报错、
-格式校验失败、核对记录 schema 或遇到首次任务时才读。本页不替代任何技能的所有权
-与接受纪律，只压缩“读哪些文件、跑哪些命令”的检索成本。
+例行任务优先使用 `prepare` 生成的任务胶囊，不默认读取本页。只有 `prepare` 不可用、
+命令报错或需要人工核对命令形态时才读本页；不要让模型打开 `suite-manifest.json`。
 
 第一次处理长篇输入、跨阶段消费链或长镜头拆分时，先读
 [workflow-dataflow.md](workflow-dataflow.md)；它解释内容如何从输入流到交付，本页只负责操作。
@@ -20,17 +19,29 @@ python3 <core>/scripts/project_tool.py preflight <project>
 - 逐集生产先跑 `pipeline <project>`：固定流程（含 M1.5a/M1.5b）的当前位置、下一步与阻塞项见
   `production-pipeline.md`；strict 模式下有阻塞项退出码 3。
 
+## 模型任务胶囊
+
+```text
+python3 <core>/scripts/project_tool.py prepare <project> --stage write --episode EP001 --intent create
+python3 <core>/scripts/project_tool.py finalize <project> --packet .short-drama/work/task-packets/<TASK>.json
+```
+
+- `prepare` 只读取项目状态和精确生命周期来源，生成不进入交付包的私有工作胶囊与骨架。
+- 模型先读胶囊，只编辑其中的 `work_path`，参考文件继续按需加载。
+- 项目、状态或来源 hash 变化后，`finalize` 拒绝旧胶囊。
+- `finalize --publish --artifact-id <id>` 才发布 candidate；不带 `--publish` 只编译和校验。
+
 ## 命令速查
 
 | 命令 | 常用形态 | 说明 |
 |---|---|---|
 | `init` | `init <project> --title ... [--language zh-CN] [--prompt-language en] [--aspect-ratio 9:16] [--max-clip-seconds 15]` | 初始化，不生成创作内容；语言与画幅各自独立；`--max-clip-seconds` 设置单次视频模型调用上限，默认 15 秒，不改变影视镜头边界 |
 | `upgrade-flow` | `upgrade-flow <project>` | 旧项目完成并接受 M1.5a/M1.5b 后切换到 pipeline 2.0；升级前 M2–M7 阻断 |
-| `publish` | `publish <project> --owner <技能> --artifact-id <id> --output 目标=来源 [--input 依赖=hash] [--input-record 文件=记录ID]` | 发布 candidate；来源与目标必须不同路径 |
+| `publish` | `publish <project> --owner <技能> --artifact-id <id> --output 目标=来源 [--input 依赖=hash] [--input-record 文件=记录ID]` | 发布 candidate；来源可位于工作区或已是目标文件，目标与来源相同时不会把自身登记为输入 |
 | `accept` | `accept <project> --artifact-id <id> --decision accepted [--target 路径[=hash]] --evidence-artifact 创作者决策/<净化id>.json [--evidence-hash <hash>] [--evidence-record-id <id>]` | 创作者接受；`--target` 与 `--evidence-hash` 都可省（工具从快照/磁盘现算，仍逐 hash 核对）。文件名用净化后的 artifact id（冒号→连字符：`EP001:script` → `EP001-script.json`；Windows 不允许冒号） |
 | `decide` | `decide <project> --artifact-id <id> --decision accepted [--force] [--decided-by <role:id> --delegation-artifact <path>]` | 从候选快照生成合规决定文件；默认直接由 creator 决定，委托必须绑定 creator delegation evidence；不代替创作者做决定 |
 | `accept-batch` | `accept-batch <project> [--decisions-dir 创作者决策]` | 一次应用磁盘上全部已记录的接受决定；幂等——已接受且目标一致的决定记为 `skipped`（退出码 0），不是失败；整批生产用 |
-| `review-bundle` | `review-bundle <project> --episode EP001 [--target 路径[=hash]]...` | L1 派发或冷读前打包证据，审查者只读一份文件 |
+| `review-bundle` | `review-bundle <project> --episode EP001 [--scope 范围] [--compact] [--delta-from 旧verdict]` | 按整集或范围打包证据；例行冷读可 compact，修订复核可只含变化目标，交付终审使用完整整集 |
 | `review` | `review <project> --artifact-id <id> --verdict ... [--target 路径[=hash]] --verdict-owner short-drama-review --verdict-artifact ... [--verdict-hash ...]` | 记录审查结论（fresh / 冷读 / 增量复核） |
 | `review-batch` | `review-batch <project> [--verdicts-dir 审查] [--episode EP001]` | 一次应用磁盘上全部已写入的审查结论；`--episode` 限定单集，verdict 文件须含 `artifact_id` |
 | `package` | `package <project> --episode EP001 --include 路径... [--omit 路径 --omission-evidence 决定文件]` | 交付打包；要求 M2–M6 完成并先过 L1 fresh 终审；省略项必须有 creator evidence，且 delivery_surface 已接受 |
@@ -62,9 +73,9 @@ python3 <core>/scripts/project_tool.py preflight <project>
 - **改版后 `decide --force`**：重新发布引用旧决定文件的候选后，旧决定文件存在会让
   `decide` 报 `decision file already exists`；加 `--force` 覆盖，旧 `decision_id` 记入
   `supersedes_decision_id`。已接受产物仍被拒绝（不再有 candidate targets）。
-- **每次修订剧本后重建 index**：改 `screenplay.md` 后必须重跑 `screenplay_index.py
-  --previous-index --previous-source`；否则发布剧本时 `publish` 会在输出里报
-  `screenplay index is stale` 警告，且下游引用旧 block hash 会连锁 `stale`。
+- **每次修订剧本后重建 index**：任务胶囊流程由 `finalize` 自动重建 candidate index。
+  只有绕过任务胶囊直接 `publish` 时，才手工运行 `screenplay_index.py --previous-index
+  --previous-source`；旧 index 会导致警告并让下游 block 绑定失效。
 - **时长预算提前看**：`target_seconds_per_episode` 的唯一正式兑现点在 M4b 分镜
   （SHT-16），但剧本密度不足不必等到那一步——`publish` 剧本时会报
   `estimated on-screen time ... below target_seconds_per_episode` 警告，

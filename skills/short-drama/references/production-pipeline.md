@@ -84,7 +84,7 @@ M4b 为每镜从该集合选择实际 `view_id`。M4a/M4b/M5 使用由 asset/mod
 - 接受 / 审查 / 交付闸门沿用生命周期命令既有强制：下游只消费 accepted，`package`
   只收 accepted + L1 fresh 终审，`verify` 复核交付包。
 - M3 的形态门由 `pipeline` 阻塞项 `BLK-M3-FORM` 保证；设定播种不受此限。
-- **形态接受是流程层动作，不是工具命令**：`project_tool.py` 的 16 个项目命令都不能把
+- **形态接受是流程层动作，不是工具命令**：`project_tool.py` 的生命周期命令都不能把
   `visual_direction` / `production_profile` 置为 `accepted`——形态卡选择经创作者确认后，
   由模型按本技能路由把决定写入 `short-drama.json#/creator_authority`（状态置 `accepted`），
   再以 `pipeline` 确认 `BLK-M0-FORM` 解除。这是唯一的提升路径。

@@ -2,22 +2,18 @@
 
 ## 目录
 
-- [运行时预检](#运行时预检)
+- [阶段入口补充](#阶段入口补充)
 - [所有权边界](#所有权边界)
 - [制作形态需要什么](#制作形态需要什么)
 - [参考媒体与补拍](#参考媒体与补拍)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
-`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
+本文件只定义本阶段的所有权、形态输入与规则。公共安装校验、事务恢复、状态读取和
+记录绑定由 core `preflight`、`prepare` 处理；不要重复加载公共预检说明。
 
-## 运行时预检
+## 阶段入口补充
 
-进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
-JSON/JSONL 时声明记录绑定，含剧本经 `screenplay-index.jsonl` 记录 ID 绑定）见
-`references/runtime-preflight.md`，不在本文件重复。
-本阶段的补充：逐场 `coverage-auditions/<SC>.jsonl` 与 `scene-visual-plans/<SC>.jsonl`
+逐场 `coverage-auditions/<SC>.jsonl` 与 `scene-visual-plans/<SC>.jsonl`
 的 `<SC>` 必须采用 `SC001` 式规范 ID，且文件名必须和记录中可解析的 `scene_ref` 一致；
 `publish` 只机械核对这项路径/引用一致性，不借此扩张成创作内容 schema。
 

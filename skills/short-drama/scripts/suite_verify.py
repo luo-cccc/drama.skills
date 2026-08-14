@@ -56,7 +56,7 @@ def text_sha256(data: bytes) -> str:
 # Editor, OS and tool artifacts that are never release content. The list is
 # deliberately closed: anything not named here stays visible to both the
 # manifest and this verifier, so an extra executable file is still reported and
-# runtime-preflight's "额外可执行文件 -> 停止写入" promise still holds.
+# the public preflight contract still stops writes on unexpected executables.
 # tools/update_suite_manifest.py repeats these sets; a test asserts they agree.
 NOISE_DIR_NAMES = frozenset({".ruff_cache", ".mypy_cache", ".pytest_cache"})
 NOISE_FILE_NAMES = frozenset({".DS_Store"})

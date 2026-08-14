@@ -1,169 +1,54 @@
 ---
 name: short-drama-image-prompts
-description: 为已确认的短剧角色、造型、场景、视角、道具和状态编写或修改可复制的通用资产图片提示词，并把已接受视觉方向投影成 Look Development 人物、地点或高压力风格帧。用户提到角色设定图、三视图、人物参考图、场景设定图、场景空镜、场景板、道具图、风格帧、Look Development、造型或状态变体、局部编辑提示词，或要求用自然语言修改现有图片提示词时直接使用；只产出结构化规格与 Markdown 文本，不生成图片，也不调用模型或供应商接口。
-license: MIT
+description: 为已确认的短剧资产、视图、造型和状态建立标准提示片段、资产图片提示词与 Look Development 文本规格。用户要求角色设定图、三视图、场景板、道具图、状态变体、风格帧或修改图片提示词时使用；只输出结构化规格和确定性 Markdown，不生成图片或调用供应商接口。
 ---
 
-# 短剧资产图片提示词
+# 短剧图片提示词
 
-把已接受的资产事实写成“能认出、能复用、能区分状态”的参考图提示词。这里的产物是提示词，不是图片。
+## 快速入口
 
-## 先定位套件
+1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+2. 运行 `prepare <project> --stage image-prompts --episode EP001 --intent create|revise`。
+3. 先读任务胶囊，只读取实际消费的 asset/model/view/variant 和视觉方向。
+4. 参考媒体、形态或所有权异常时才读
+   [stage-contract.md](references/stage-contract.md)。
 
-从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
-套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
-随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
-例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
+## 两种职责
 
-## 进入条件与边界
-
-- M1.5b 读取已接受的范围、模型、变体与视图，为每个实际资产建立并接受
-  `style_core`、`identity_full`、`continuity_lock`、`variant_delta/view_projection`、
-  `negative_lock`；片段接受后下游不得改写。
-- 本技能拥有 `设定集/generation/canonical-fragments.jsonl`、
-  `canonical-prompt-library.md` 与确定性 `scripts/prompt_compile.py`，不拥有 M1.5a 模型。
-- 可从现成项目直接进入，不要求先做故事开发；先定位 `short-drama.json` 和版本一致的主技能。
-- 所有权、下游文件何时变为 `stale` 或项目状态不清时，读
-  [阶段契约](references/stage-contract.md) 的所有权边界；需要定位规则 ID
-  或解释审查问题时，读同一文件的本阶段规则表。
-- 输入必须是已接受的 `CHAR/LOOK`、`LOC/VIEW` 或 `PROP/PSTATE` 精确 ID 与快照引用；`proposed`
-  播种记录也可按 `authority:candidate` 绑定，但产物保持 `provisional`。未决指代、冲突变体或未知状态退回 `$short-drama-assets`，不代猜。
-- 始终读取 `short-drama.json#/creator_authority/{visual_direction,production_profile}` 中状态为
-  `accepted` 的视觉方向与制作形态：它决定本阶段可执行的形状语言、线条/表面处理、材质对光的
-  响应与层拆；若状态为 `unset`，就向创作者给出选择，不从对话记忆补造，也不用默认审美冒充
-  已接受形态。形态只决定可执行词汇，不决定身份、地理、持物、可读文字政策与故事状态。
-- 若创作者明确要求全链预览，或绑定的是 `proposed` 播种记录，可对唯一且没有 `unresolved`
-  问题的资产提案写 `candidate` 提示词；来源引用加 `authority:candidate`，文档标明
-  `provisional` 和 `not delivery-ready`，不得声称已经 `accepted`。
-- 本技能只负责构图、提示词专用约束，以及局部修改中的修改项 `changes` 和保留项 `preserve`；身份、地理和资产状态仍由资产技能负责。
-- 始终保留不绑定供应商的通用提示词。不得创建图片、媒体任务、接口请求、模型参数、轮询记录或画质结论。
-
-## 按任务加载资料
-
-| 任务 | 必读资料 |
-|---|---|
-| 新建任意资产提示词 | [通用配方与视觉锚点](references/common-recipe.md) |
-| Look Development / 人物、地点、高压力风格帧 | [Lookdev 风格帧](references/lookdev-frame.md) |
-| 人物设定图 | 加读 [人物与造型](references/character-and-look.md) |
-| 造型、视角或道具状态的版本 | 加读 [造型与状态变体](references/look-and-state-variant.md) |
-| 场景空镜或不同观察方向 | 加读 [场景与地理](references/location-plate.md) |
-| 道具或 道具状态 | 加读 [道具、尺度与文字](references/prop-plate.md) |
-| 局部修改或自然语言改提示词 | 加读 [编辑与修订](references/edit-and-revision.md) |
-| 自检、复核、失败诊断 | [审查量表与合成案例](references/review-and-fixtures.md) |
-| 生产端三视图/场景方位/物品版式配方 | [生产资产图配方](references/production-sheet-recipes.md) |
-| 参考图只决定身份、构图或尺度等指定内容 | [阶段契约](references/stage-contract.md) 的参考媒体与补拍 |
-
-普通资产规格使用 [结构化规格模板](assets/image-prompt-spec.jsonl.md)；Look Development 改用
-[独立风格帧模板](assets/lookdev-frame-spec.jsonl.md) 与
-[风格帧 Markdown 模板](assets/lookdev-prompts.md)，不先加载普通资产超集再删字段。普通资产交付文本
-使用 [Markdown 模板](assets/image-prompts.md)。只加载当前类型所需资料。
+- M1.5b：为 M1.5a 已接受模型建立 canonical fragments 和标准片段库。
+- M4a：为 M2/M3 实际消费的资产建立 asset-board 规格和用户可复制 Markdown。
 
 ## 工作流
 
-### 1. 确认目的而非先堆风格词
+1. 确认用途、资产 ID、模型、View、variant、语言和已接受视觉方向。
+2. 只加载当前类型所需方法：通用配方读
+   [common-recipe.md](references/common-recipe.md)，批量生产表读
+   [production-sheet-recipes.md](references/production-sheet-recipes.md)。
+3. 写结构化 `prompt_components`、任务、局部增量和排除项，不重复整份资产描述。
+4. M4a 必须覆盖 M2 声明的每个实际资产及全部允许 View/variant，不能用代表性提示词代替。
+5. 运行 `finalize --packet ...`。它使用 canonical fragments 确定性生成
+   `generic_prompt`、编译 manifest 和 `image-prompts.md`，禁止模型自由改写派生 Markdown。
 
-先回答：这张参考图以后要帮助谁保持什么一致？选择一种主类型：
+专项提示词只在命中时读取：人物、场景、道具分别见
+[character-and-look.md](references/character-and-look.md)、
+[location-plate.md](references/location-plate.md)、[prop-plate.md](references/prop-plate.md)；
+Look Development 与状态变体见 [lookdev-frame.md](references/lookdev-frame.md)、
+[look-and-state-variant.md](references/look-and-state-variant.md)；定点修订和审查样例见
+[edit-and-revision.md](references/edit-and-revision.md)、
+[review-and-fixtures.md](references/review-and-fixtures.md)。
 
-- `character_sheet`：识别同一人物的一套已接受造型；
-- `location_plate`：固定一个地点的观察方向和地理；
-- `prop_plate`：固定道具的尺度、形制、功能和当前状态；
-- `look_state_variant`：在同一身份上突出有因果与有效范围的差异；
-- `edit_delta`：对精确目标做有边界的修改，同时声明保留集。
-- `lookdev_frame`：把已接受视觉方向投影成人物表现、核心地点或高压力场景的代表性文本规格。
+## 产物
 
-一个规格只承担一个主要复用目的。需要不同造型、观察方向、状态或 lookdev 测试轴时分开写，
-不把互相冲突的状态揉成“大全图”。风格帧不获得角色身份、场景地理或剧情状态的权威。
-固定主线 M4a 的规格使用 `profile: asset_board` 且每条只绑定一个资产；一个资产至少有一条
-基线板，并覆盖 M2 为它声明的全部 View 和 generation variant。
+- `设定集/generation/canonical-fragments.jsonl`
+- `设定集/generation/canonical-prompt-library.md`
+- `项目开发/lookdev-image-prompt-specs.jsonl`、`lookdev-prompts.md`（需要时）
+- `剧集/<EP>/assets/image-prompt-specs.jsonl`
+- `剧集/<EP>/assets/image-prompts.md`（由结构化源派生）
 
-### 2. 整理输入
+## 边界
 
-固定主线先读取 `设定集/generation/` 的已接受记录。片段携带 `fragment_id`、语言、适用范围、
-模型/变体引用、输入记录哈希、固定文本和自身哈希；generation 引用同时携带文件定位、
-`record_id`、`record_hash`，项目级 style 引用以 JSON Pointer 分别绑定视觉方向与
-`prompt_language` 的记录哈希；相关记录变化时
-重新生成并接受对应片段，不能只手改哈希。
-
-从接受快照记录：
-
-1. 准确的资产 ID 与版本 ID；
-2. 稳定识别点与本版本的变化；
-3. 来源的 `artifact/hash/field`；
-4. 用途、构图、背景、光线与文字政策；
-5. 每张参考图的准确引用、单一作用、可参考内容、不可照搬内容与检查状态；只有
-   创作者/参考图权利人的说明，或经过授权的输入参考图检查，才能给出像素/文字结论；
-   前者写 `creator_described`，后者写 `visually_inspected`，都没有时保持 `unverified` 并列出风险；
-   多参考还要保留稳定 `slot_id` 与显式 `order`，不能让数组重排改变用途；
-6. 必须出现、必须保持和明确排除的内容；
-7. 未决定项以及创作者的明确选择。
-
-只带入当前操作必需的信息。私有引用在文本中仅写 `REF-*`，不泄露本地路径、网址或原始内容。
-
-### 3. 按重要性写规格与通用提示词
-
-所有图片规格使用 `asset_bindings`、`task_and_format`、`prompt_components`、
-`compilation_manifest` 和 `generic_prompt` 统一接口。先写绑定和当前任务，再运行
-`scripts/prompt_compile.py`；编译器只验证引用和拼装，不创作或改写片段。
-
-按“用途/主体 → 识别点 → 状态差异 → 构图/方向/尺度/空间关系 → 材质/色彩/光线 → 背景 → 文字政策 → 排除/保留”组织。身份、地理、尺度和可读文字等重要事实先于“精致、电影感”等空泛审美词。
-
-- `structural_invariant`：绑定准确的已接受 ID/版本（`proposed` 播种记录按 `authority:candidate` 绑定并保持产物 provisional）；局部修改写清 `target/hash/region`、`changes`、`preserve` 和连续性影响；`readable` 不得与全局 `no-text` 并存。
-- `reviewed_invariant`：人物在一个规格中保持同一身份和一套连贯造型；场景保持清楚的地理；道具保持可辨尺度、形制与功能。
-- `reviewed_invariant`：参考图只决定已经声明的内容；构图、尺度或效果参考不得顺带改写身份、文字、人数或故事状态。
-- `craft_default`：用少量可观察、彼此不重复的识别点；负面约束只防止当前风险，不写长篇万能禁词。
-- `taste_option`：写实/绘制、镜头审美、色彩浓度、文风密度由创作者决定；一旦被写入
-  `creator_authority` 并接受，它就不再是本阶段可自选的口味，而是必须投影的形态约束。
-
-### 4. 做矛盾与可复用性审查
-
-逐项检查：锚点是否互相打架；临时状态是否污染身份；空间关系是否能画在同一画面；构图是否服务参考用途；文字政策是否可执行；排除项是否误杀必需事实。语义质量用证据复核，不用词数、形容词数或固定提示词长度硬判。
-
-### 5. 让创作者接受，再写正式产物
-
-先展示人能读懂的预览：绑定对象、关键选择、警告与可复制提示词。接受后写：
-
-- `项目开发/lookdev-image-prompt-specs.jsonl` 与 `项目开发/lookdev-prompts.md`：仅项目级
-  Look Development 使用，后者为派生文本；虽放在 `项目开发/` 下，所有权属
-  `short-drama-image-prompts`；
-- `剧集/<EP>/assets/image-prompt-specs.jsonl`：权威规格；
-- `剧集/<EP>/assets/image-prompts.md`：由已接受规格和配方 `hash` 重新生成的文本版本。
-
-发布派生 Markdown 时，工具会核对同目录结构化源的当前 hash、每条记录 ID 和
-`generic_prompt` 的有序正文；旧缓存、漏记录或自由改写直接报 `BLK-DERIVED-MARKDOWN`。
-`canonical-prompt-library.md` 不需要手写，使用确定性投影：
-
-```text
-python scripts/prompt_compile.py --fragments canonical-fragments.jsonl \
-  --render-library --output canonical-prompt-library.md
-```
-
-跨文件发布遵循主技能的提交与恢复流程；不得以半成品覆盖已接受版本。
-M1.5b 必须在剧本之前接受。M4a 的角色板、场景板、道具/载具/效果板和状态变体
-均从完整模型编译，不从旧长提示词反向总结身份。固定主线中，M4a 的全部规格合并后必须
-覆盖 M2 `generation_asset_bindings` 的每个资产；不得用一份代表性提示词让未消费资产静默过关。
-
-## 自然语言修订
-
-用户可直接说“外套保持不变，只把袖口变湿”“场景里不要出现演员”。不要让用户编辑 JSONL。
-
-1. 把请求整理成按字段列出的修改方案，并标记哪些事实由上游负责；
-2. 展示 `before → after`、受影响的绑定和连续性，以及无法对应或会丢失的内容；
-3. 等待接受或拒绝；拒绝时原规格与 Markdown 文本不变；
-4. 接受后先提交规格，再从规格重新导出 Markdown 文本。
-
-若 Markdown 文本被手改：`restore` 先预览恢复；`adopt` 只把能完整对应字段的改动变成
-规格提案。无法对应的文句会阻断 `adopt`，绝不让派生文本反向成为事实来源。详见
-[编辑与修订](references/edit-and-revision.md)。
-
-## 完成标准
-
-- 每个规格能追溯到准确的已接受资产与版本，且通用提示词可独立复制；
-- 类型配方完整，重要事实在泛化审美词之前，无未决占位或内部工作指令；
-- 局部修改同时说明改什么、保留什么、会影响哪些连续性；
-- 已运行本地结构检查，再交给独立 `$short-drama-review` 结合来源资料审查内容；
-- 交付中没有媒体、远程执行任务或接口信息、远端 ID、私有对应表或“生成成功”声明。
-- `generic_prompt` 与 manifest 通过 `prompt_compile.py --check`；Markdown 固定按
-  “固定资产基线 / 状态增量 / 当前任务 / 排除项”的语义顺序排列，章节标题跟随
-  `prompt_language`。片段过期报告 `BLK-M15-FRAGMENT`，
-  自由改写或 manifest 不符报告 `BLK-PROMPT-COMPILE`。
+- 不创建资产身份、模型或 View。
+- 不从旧长提示词反向总结身份。
+- 不生成、上传或检查图片。
+- 参考图可用范围必须来自创作者说明或授权观察记录。
+- owner 不自行签发终审结论。
