@@ -29,6 +29,7 @@ Finding 必须含 artifact/hash、引用片段、影响、required fix、owner�
 | Economy | frame 已承载外观是否被无谓倾倒？ | reference contents + copy block |
 | Shot boundary | 是否偷改 duration/end/next shot，或在单个镜头内部藏未声明的 cut？ | source shot + motion |
 | Segment integrity | 每个计时段是否只有一个连续视角？各段相加是否正好等于**所属镜头**的已接受时长？ | segment 列表 + accepted shot duration |
+| Generation clip integrity | 一个影视镜头是否被模型调用片段完整覆盖？每片是否不超过项目上限，续接是否绑定前片段交接？ | generation-clips + project generation_limits + shot/motion refs |
 | Container arithmetic | 容器承载了哪些已接受镜头？容器时长是否等于成员时长之和？成员是否顺序连续、同一绑定链、不跨场次、各自可单独审查？ | container 成员列表 + 各镜 accepted duration |
 | Deliverable text | 交付文本里是否只剩要拍的画面内容，没有文件名、版本号、锁定标记、草图指代或任务备注？ | prompt 正文 |
 
@@ -55,14 +56,37 @@ Finding 必须含 artifact/hash、引用片段、影响、required fix、owner�
 | VID_REFERENCE_DUMP | craft_default | reviewer | warning | video-prompts | bound frame 已带外观却重复整本 设定集 |
 | VID_HIDDEN_CUT_IN_SEGMENT | reviewed_invariant | reviewer | error | video-prompts | 单个计时段内藏入视角或空间跳变，等于一次未申报的剪辑 |
 | VID15_SHOT_PACKED_TWICE | structural_invariant | validator | error | video-prompts | 同一镜头被两个容器认领，全集时长凭空多一段 |
+| GCLIP_DURATION_EXCEEDS_LIMIT | structural_invariant | validator | error | video-prompts | 单次模型调用超过项目 `generation_limits.max_clip_seconds` |
+| GCLIP_SHOT_UNCOVERED | structural_invariant | validator | error | video-prompts | accepted shot 没有生成片段 |
+| GCLIP_COVERAGE_GAP_OR_OVERLAP | structural_invariant | validator | error | video-prompts | 生成片段在同一镜头内存在间隙或重叠 |
+| GCLIP_HANDOFF_INVALID | structural_invariant | validator | error | video-prompts | 后续生成片段未承接紧邻片段的 planned boundary |
 | VID15_MEMBER_IS_NOT_AN_EPISODE_SHOT | structural_invariant | validator | error | video-prompts | 容器成员不属于本集镜头集合 |
 | VID15_MEMBER_SHOT_HAS_NO_DURATION | structural_invariant | validator | error | video-prompts | 被装箱的镜头没有数值时长，容器时长无从成立 |
 | VID15_CONTAINER_DURATION_IS_NOT_THE_SUM | structural_invariant | validator | error | video-prompts | 容器时长不等于成员已接受时长之和 |
 | VID15_EPISODE_TOTAL_DOES_NOT_RECONCILE | structural_invariant | validator | error | video-prompts | 容器加散镜不等于全集镜头时长总和 |
+| VID13_CONTAINER_HAS_NO_MEMBERS | structural_invariant | validator | error | video-prompts | 容器记录没有 members 列表 |
+| VID13_MEMBER_ORDER_MISSING | structural_invariant | validator | error | video-prompts | 成员未带 order 字段 |
+| VID13_MEMBER_ORDER_NOT_ASCENDING_UNIQUE | structural_invariant | validator | error | video-prompts | 成员 order 非升序或不唯一 |
+| VID13_MEMBER_ORDER_NOT_CONTIGUOUS | structural_invariant | validator | error | video-prompts | 成员 order 未从 1 起连续 |
+| VID13_MEMBER_HAS_NO_DURATION_REF | structural_invariant | validator | error | video-prompts | 成员未声明 accepted_duration_ref |
+| VID13_MEMBER_DURATION_REF_UNRESOLVED | structural_invariant | validator | error | video-prompts | accepted_duration_ref 解析不到镜头时长字段 |
+| VID13_MEMBER_ACCEPTED_DURATION_MISSING | structural_invariant | validator | error | video-prompts | 成员缺数值 accepted_duration |
+| VID13_MEMBER_ACCEPTED_DURATION_MISMATCH | structural_invariant | validator | error | video-prompts | 成员 accepted_duration ≠ 引用镜头值 |
+| VID13_CONTAINER_DURATION_MISSING | structural_invariant | validator | error | video-prompts | container_duration 非数值 |
+| VID13_CONTAINER_DURATION_NOT_SUM_OF_ACCEPTED | structural_invariant | validator | error | video-prompts | 容器时长 ≠ 成员 accepted_duration 之和 |
+| VID13_MEMBER_HAS_NO_MOTION_REF | structural_invariant | validator | error | video-prompts | 成员未声明 motion_ref |
+| VID13_MOTION_REF_UNRESOLVED | structural_invariant | validator | error | video-prompts | motion_ref 解析不到运动规格的 shot_ref |
+| VID13_MOTION_SHOT_MISMATCH | structural_invariant | validator | error | video-prompts | 运动规格 shot_ref 与成员 shot_ref 不一致 |
+| VID13_BINDING_CHAIN_MISDECLARED | structural_invariant | validator | error | video-prompts | binding_chain_equal=true 但成员绑定实际不同 |
+| VID13_BINDING_CHAIN_NOT_DECLARED | structural_invariant | validator | error | video-prompts | 成员绑定相同但 binding_chain_equal 未声明为 true |
+| VID13_MEMBERSHIP_BASIS_MISSING | structural_invariant | validator | error | video-prompts | 容器缺 membership_basis |
+| VID13_MEMBERSHIP_BASIS_INCOMPLETE | structural_invariant | validator | error | video-prompts | membership_basis 三项结论有空白 |
 
-`VID15_*` 由 [container_check.py](../scripts/container_check.py) 执行。未装容器的散镜与
-时长尚未确定的镜头**只报告不判错**：前者是合法的打包选择，后者是上游还没做完，把它们
-写成缺陷会让"进行中"和"做错了"无法区分。
+`VID13_*`（容器结构声明）与 `VID15_*`（全集对账）均由
+[container_check.py](../scripts/container_check.py) 执行；`--motions` 打开 `VID-13`
+的成员时长/运动链/绑定链检查。未装容器的散镜与时长尚未确定的镜头**只报告不判错**：
+前者是合法的打包选择，后者是上游还没做完，把它们写成缺陷会让"进行中"和"做错了"
+无法区分。
 | VID_UNEXECUTABLE_MICRO_METRIC | craft_default | reviewer | warning | video-prompts | 亚秒偏移、厘米位移、角度数等读起来精确却无法执行也无法验证的计量 |
 | VID_INNER_MONOLOGUE_ONLY | craft_default | reviewer | warning | video-prompts | 绝大多数段落只有内心活动，没有可拍的可见事件或有来源的声音 |
 | VID_STYLE_ALTERNATIVE | taste_option | reviewer | note | video-prompts | 表演/摄影/声音风格的非阻断选择 |

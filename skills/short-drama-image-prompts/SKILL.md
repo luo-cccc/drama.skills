@@ -8,32 +8,34 @@ license: MIT
 
 把已接受的资产事实写成“能认出、能复用、能区分状态”的参考图提示词。这里的产物是提示词，不是图片。
 
-预览、警告与修订说明是创作者读的，跟随 `short-drama.json#/language`；送给图片生成器的
-**通用提示词正文**跟随 `#/format/prompt_language`（默认 `en`，多数生成器对英文提示词最稳定）。
-两个值都由 core `project_tool.py` 的 `status` 报出，不要各自猜默认值。改了描述语言不等于
-改了画面里的可读文字——那由已接受的文字政策决定。
-
 ## 先定位套件
 
 从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
 套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
 随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；本技能不读取其他技能的文件。
+该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
+例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
 
 ## 进入条件与边界
 
+- M1.5b 读取已接受的范围、模型、变体与视图，为每个实际资产建立并接受
+  `style_core`、`identity_full`、`continuity_lock`、`variant_delta/view_projection`、
+  `negative_lock`；片段接受后下游不得改写。
+- 本技能拥有 `设定集/generation/canonical-fragments.jsonl`、
+  `canonical-prompt-library.md` 与确定性 `scripts/prompt_compile.py`，不拥有 M1.5a 模型。
 - 可从现成项目直接进入，不要求先做故事开发；先定位 `short-drama.json` 和版本一致的主技能。
 - 所有权、下游文件何时变为 `stale` 或项目状态不清时，读
   [阶段契约](references/stage-contract.md) 的所有权边界；需要定位规则 ID
   或解释审查问题时，读同一文件的本阶段规则表。
-- 输入必须是已接受的 `CHAR/LOOK`、`LOC/VIEW` 或 `PROP/PSTATE` 精确 ID 与快照引用。未决指代、冲突变体或未知状态退回 `$short-drama-assets`，不代猜。
+- 输入必须是已接受的 `CHAR/LOOK`、`LOC/VIEW` 或 `PROP/PSTATE` 精确 ID 与快照引用；`proposed`
+  播种记录也可按 `authority:candidate` 绑定，但产物保持 `provisional`。未决指代、冲突变体或未知状态退回 `$short-drama-assets`，不代猜。
 - 始终读取 `short-drama.json#/creator_authority/{visual_direction,production_profile}` 中状态为
   `accepted` 的视觉方向与制作形态：它决定本阶段可执行的形状语言、线条/表面处理、材质对光的
   响应与层拆；若状态为 `unset`，就向创作者给出选择，不从对话记忆补造，也不用默认审美冒充
   已接受形态。形态只决定可执行词汇，不决定身份、地理、持物、可读文字政策与故事状态。
-- 若创作者明确要求全链预览，可对唯一且没有 `unresolved` 问题的资产提案写
-  `candidate` 提示词；来源引用加 `authority:candidate`，文档标明 `provisional` 和
-  `not delivery-ready`，不得声称已经 `accepted`。
+- 若创作者明确要求全链预览，或绑定的是 `proposed` 播种记录，可对唯一且没有 `unresolved`
+  问题的资产提案写 `candidate` 提示词；来源引用加 `authority:candidate`，文档标明
+  `provisional` 和 `not delivery-ready`，不得声称已经 `accepted`。
 - 本技能只负责构图、提示词专用约束，以及局部修改中的修改项 `changes` 和保留项 `preserve`；身份、地理和资产状态仍由资产技能负责。
 - 始终保留不绑定供应商的通用提示词。不得创建图片、媒体任务、接口请求、模型参数、轮询记录或画质结论。
 
@@ -72,8 +74,16 @@ license: MIT
 
 一个规格只承担一个主要复用目的。需要不同造型、观察方向、状态或 lookdev 测试轴时分开写，
 不把互相冲突的状态揉成“大全图”。风格帧不获得角色身份、场景地理或剧情状态的权威。
+固定主线 M4a 的规格使用 `profile: asset_board` 且每条只绑定一个资产；一个资产至少有一条
+基线板，并覆盖 M2 为它声明的全部 View 和 generation variant。
 
 ### 2. 整理输入
+
+固定主线先读取 `设定集/generation/` 的已接受记录。片段携带 `fragment_id`、语言、适用范围、
+模型/变体引用、输入记录哈希、固定文本和自身哈希；generation 引用同时携带文件定位、
+`record_id`、`record_hash`，项目级 style 引用以 JSON Pointer 分别绑定视觉方向与
+`prompt_language` 的记录哈希；相关记录变化时
+重新生成并接受对应片段，不能只手改哈希。
 
 从接受快照记录：
 
@@ -92,9 +102,13 @@ license: MIT
 
 ### 3. 按重要性写规格与通用提示词
 
+所有图片规格使用 `asset_bindings`、`task_and_format`、`prompt_components`、
+`compilation_manifest` 和 `generic_prompt` 统一接口。先写绑定和当前任务，再运行
+`scripts/prompt_compile.py`；编译器只验证引用和拼装，不创作或改写片段。
+
 按“用途/主体 → 识别点 → 状态差异 → 构图/方向/尺度/空间关系 → 材质/色彩/光线 → 背景 → 文字政策 → 排除/保留”组织。身份、地理、尺度和可读文字等重要事实先于“精致、电影感”等空泛审美词。
 
-- `structural_invariant`：绑定准确的已接受 ID/版本；局部修改写清 `target/hash/region`、`changes`、`preserve` 和连续性影响；`readable` 不得与全局 `no-text` 并存。
+- `structural_invariant`：绑定准确的已接受 ID/版本（`proposed` 播种记录按 `authority:candidate` 绑定并保持产物 provisional）；局部修改写清 `target/hash/region`、`changes`、`preserve` 和连续性影响；`readable` 不得与全局 `no-text` 并存。
 - `reviewed_invariant`：人物在一个规格中保持同一身份和一套连贯造型；场景保持清楚的地理；道具保持可辨尺度、形制与功能。
 - `reviewed_invariant`：参考图只决定已经声明的内容；构图、尺度或效果参考不得顺带改写身份、文字、人数或故事状态。
 - `craft_default`：用少量可观察、彼此不重复的识别点；负面约束只防止当前风险，不写长篇万能禁词。
@@ -110,11 +124,18 @@ license: MIT
 先展示人能读懂的预览：绑定对象、关键选择、警告与可复制提示词。接受后写：
 
 - `项目开发/lookdev-image-prompt-specs.jsonl` 与 `项目开发/lookdev-prompts.md`：仅项目级
-  Look Development 使用，后者为派生文本；
+  Look Development 使用，后者为派生文本；虽放在 `项目开发/` 下，所有权属
+  `short-drama-image-prompts`；
 - `剧集/<EP>/assets/image-prompt-specs.jsonl`：权威规格；
 - `剧集/<EP>/assets/image-prompts.md`：由已接受规格和配方 `hash` 重新生成的文本版本。
 
+发布派生 Markdown 时，工具会核对同目录结构化源的当前 hash、每条记录 ID 和
+`generic_prompt` 的有序正文；旧缓存、漏记录或自由改写直接报 `BLK-DERIVED-MARKDOWN`。
+
 跨文件发布遵循主技能的提交与恢复流程；不得以半成品覆盖已接受版本。
+M1.5b 必须在剧本之前接受。M4a 的角色板、场景板、道具/载具/效果板和状态变体
+均从完整模型编译，不从旧长提示词反向总结身份。固定主线中，M4a 的全部规格合并后必须
+覆盖 M2 `generation_asset_bindings` 的每个资产；不得用一份代表性提示词让未消费资产静默过关。
 
 ## 自然语言修订
 
@@ -136,3 +157,7 @@ license: MIT
 - 局部修改同时说明改什么、保留什么、会影响哪些连续性；
 - 已运行本地结构检查，再交给独立 `$short-drama-review` 结合来源资料审查内容；
 - 交付中没有媒体、远程执行任务或接口信息、远端 ID、私有对应表或“生成成功”声明。
+- `generic_prompt` 与 manifest 通过 `prompt_compile.py --check`；Markdown 固定按
+  “固定资产基线 / 状态增量 / 当前任务 / 排除项”的语义顺序排列，章节标题跟随
+  `prompt_language`。片段过期报告 `BLK-M15-FRAGMENT`，
+  自由改写或 manifest 不符报告 `BLK-PROMPT-COMPILE`。

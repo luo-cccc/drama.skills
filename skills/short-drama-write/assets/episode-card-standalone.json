@@ -114,6 +114,23 @@
     "scene_jobs": [],
     "production_requirements": []
   },
+  "generation_asset_bindings": [
+    {
+      "asset_id": "CHAR/CREATURE/LOC/PROP/VEHICLE/EFFECT-<id>",
+      "model_id": "MODEL/SPATIAL-<id>",
+      "view_ids": [
+        "GVIEW-<id>"
+      ],
+      "variant_ids": [],
+      "fragment_ids": [
+        "FRAG-STYLE-<id>",
+        "FRAG-IDENTITY-<id>",
+        "FRAG-CONTINUITY-<id>",
+        "FRAG-VIEW-<id>",
+        "FRAG-NEGATIVE-<id>"
+      ]
+    }
+  ],
   "source_refs": [],
   "open_questions": [],
   "creator_status": "draft"

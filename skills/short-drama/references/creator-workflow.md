@@ -48,6 +48,19 @@ A delegate's decision is revocable by the creator without a supersession dispute
 record the creator's replacement decision with `supersedes_decision_id` pointing
 at it. The reverse is not available — a delegate cannot supersede the creator.
 
+The tool enforces this boundary. A delegated acceptance carries `delegation_ref`
+to creator-owned JSON/JSONL evidence with `decision_kind: delegation`,
+`status: accepted`, the exact `delegate`, and a scope whose `operations` and
+`artifacts` permit the current action. A skill name such as `short-drama-write`
+is rejected as `decided_by`.
+
+### 批量接受
+
+同一环节产生的多份决定（播种清单、资产决定、多份单集产物）合并为**一张清单**呈现给
+创作者；一次“确认”即授权 agent 按清单逐条生成决定记录并执行 `accept`。
+工具层仍要求逐 artifact 的决定证据，但呈现层不逐个追问。清单中任何一项被创作者
+改名、合并、拆分或暂缓时，只对受影响的条目单独处理，不重来整张清单。
+
 ## Product boundary
 
 Use host-agent text reasoning to create and revise filesystem artifacts. Produce
@@ -67,7 +80,6 @@ Route by the creator's actual job, not by an internal pipeline phase.
 | Creator asks for | Owning skill | Minimum prerequisite |
 |---|---|---|
 | 从想法开发短剧 | `short-drama-develop` | creator brief or conversation |
-| 从已有多集完整剧本生成或补分集地图 | `short-drama-develop` | preserved source; Agent-selected episode boundaries, then verified one-episode slices |
 | 写/改一集剧本 | `short-drama-write` | idea, episode card, outline, or existing project |
 | 从剧本拆人物场景道具 | `short-drama-assets` | accepted canonical script, or a source script to normalize with preview |
 | 做 Look Development / 风格帧提示词 | `short-drama` → `short-drama-image-prompts` | accepted observable visual direction; asset facts when the frame depicts them |
@@ -128,7 +140,7 @@ prompt. Never manufacture creator-decision records or mark their status accepted
 When the creator wants a full preview but intermediate acceptance is unavailable,
 continue only as a **provisional preview chain**:
 
-- every dependent artifact says `status: provisional` or `candidate`;
+- every dependent artifact keeps non-accepted lifecycle states (never `accepted`);
 - accepted upstream refs keep exact accepted hashes; refs to exact upstream
   candidates or targets in one atomic candidate publication add `authority: candidate`;
 - no field is called `accepted_binding` and no accepted-snapshot hash is claimed;
@@ -158,6 +170,11 @@ forecast with project truth.
    Declare Markdown dependencies explicitly; omission is not a dependency-free claim.
 8. Review and delivery recursively revalidate input hashes and accepted providers,
    including edits that happened outside the publish command.
+9. 修订轮的接受与复核合并呈现：负责人修订后，向创作者展示一次语义 diff 和上轮
+   审查问题关闭表；创作者一次确认后，依次执行 publish → accept →
+   `delta_verify` 增量复核。越出已派发修订范围或交付终审时回到 fresh 审查。
+10. EP n>1 的单集卡与资产拆解必须以上集 outgoing 为 incoming 基准；incoming 与
+    上集 outgoing 冲突时显式处理（修订或创作者裁决），不静默对齐。
 
 Rendered prompt Markdown is a cached view. If a creator edits it manually, offer:
 

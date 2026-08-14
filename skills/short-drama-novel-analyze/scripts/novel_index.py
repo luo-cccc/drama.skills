@@ -60,6 +60,21 @@ CHINESE_UNITS = {"十": 10, "百": 100, "千": 1000}
 MAX_HEADING_LINE_WIDTH = 50
 
 
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(
+        f"non-finite JSON number is not allowed: {value}", value, 0
+    )
+
+
+def _json_loads(value: str | bytes | bytearray) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
+def _json_dumps(value: Any, **kwargs: Any) -> str:
+    kwargs.setdefault("allow_nan", False)
+    return json.dumps(value, **kwargs)
+
+
 def chinese_to_int(text: str) -> int | None:
     """Convert 一 / 十五 / 两百零三 / 一千零一 to an int, or None if malformed.
 
@@ -382,7 +397,7 @@ def verify_index(index_path: Path, source: Path) -> dict[str, Any]:
     it: an exception here reads as a broken tool, not as a fixable index.
     """
 
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = _json_loads(index_path.read_text(encoding="utf-8"))
     raw = source.read_bytes()
     problems: list[str] = []
     if not isinstance(index, dict):
@@ -488,7 +503,7 @@ def sample_chapters(index_path: Path, count: int = DEFAULT_SAMPLE_COUNT) -> dict
     is deterministic so a second run cites the same chapters as the first.
     """
 
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = _json_loads(index_path.read_text(encoding="utf-8"))
     chapters = index.get("chapters", [])
     total = len(chapters)
     if total == 0:
@@ -531,7 +546,7 @@ def coverage(
     as complete.
     """
 
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = _json_loads(index_path.read_text(encoding="utf-8"))
     expected = {chapter["sequence"] for chapter in index.get("chapters", [])}
     pattern = re.compile(rf"^ch-(\d+)-{re.escape(stage)}$")
     found: set[int] = set()
@@ -581,11 +596,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "index":
         document = build_index(args.source)
-        payload = json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True)
+        payload = _json_dumps(document, ensure_ascii=True, indent=2, sort_keys=True)
         if args.out is not None:
             _atomic_write_text(args.out, payload + "\n")
             print(
-                json.dumps(
+                _json_dumps(
                     {
                         "chapter_count": document["chapter_count"],
                         "chapter_unit": document["chapter_unit"],
@@ -603,16 +618,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "verify":
         result = verify_index(args.index, args.source)
-        print(json.dumps(result, ensure_ascii=True, indent=2))
+        print(_json_dumps(result, ensure_ascii=True, indent=2))
         return 0 if result["verified"] else 1
 
     if args.command == "sample":
         result = sample_chapters(args.index, args.count)
-        print(json.dumps(result, ensure_ascii=True, indent=2))
+        print(_json_dumps(result, ensure_ascii=True, indent=2))
         return 0 if result["sampled"] else 1
 
     result = coverage(args.index, args.analysis_dir, args.stage)
-    print(json.dumps(result, ensure_ascii=True, indent=2))
+    print(_json_dumps(result, ensure_ascii=True, indent=2))
     return 0 if result["complete"] else 1
 
 

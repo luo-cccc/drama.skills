@@ -7,36 +7,19 @@
 - [制作形态需要什么](#制作形态需要什么)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定）见 `references/runtime-preflight.md`，不在本文件重复。
 
 ## 所有权边界
 
 - **本阶段拥有**：系列承诺、冲突引擎、弧线、已规划的单集契约；已规划的知识/目标/关系/
-  交接状态；改编取舍与题材选择。
+  交接状态；改编取舍与题材选择；多集整稿的机械索引与分集地图。
 - **本阶段继承**：创作者已接受的方向、约束、题材与受众承诺。
 - **本阶段不越权**：不写逐镜事实，不指定供应商字段，不代替剧本决定场景怎么演。剧本环节
   只投影本契约，不复制它；契约变化时由本阶段发出修订，让下游刷新引用。
@@ -67,27 +50,25 @@
 
 ### `STY`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| STY-01 | craft_default | State the promise as protagonist, pursuit, costly opposition, and recurring payoff. |
-| STY-02 | craft_default | Build a repeatable conflict engine whose pressure can change power, knowledge, relationship, exposure, cost, or time. |
-| STY-03 | reviewed_invariant | A beat/episode escalation must change a story state rather than repeat the same pressure louder. |
-| STY-04 | craft_default | Enter with pressure active and deliver part of the promised payoff before the outgoing hook. |
-| STY-05 | structural_invariant | Incoming/setup/payoff references resolve to known records or are explicitly unresolved. |
-| STY-06 | taste_option | Hook, arc shape, episode count, and climax position follow the creator's format. |
-| STY-07 | reviewed_invariant | Character/scene merges preserve dramatic function, knowledge permissions, relationship position, and causal bridges. |
-| STY-08 | craft_default | Translate exposition through consequential behavior, evidence, spatial pressure, or dialogue strategy before adding neutral explanation. |
-| STY-09 | reviewed_invariant | A reveal/reversal grows from established facts and changes a plan, explanation, relationship, or costly choice. |
-| STY-10 | craft_default | Establish the recurring-payoff promise once the opening pressure makes it legible; an opening may imply, delay, or state it according to genre and creator intent. Plan each outgoing hook from the episode's local result rather than repeating a type by quota. |
-| STY-11 | craft_default | Build only the prior-world reservoir needed to predict present choices, then enter where an established strategy begins to create visible cost. |
-| STY-12 | reviewed_invariant | Claimed character progression cites a pressure test, choice or retreat, local result, cost, and changed visible strategy. |
-| STY-13 | reviewed_invariant | Each episode produces a local dramatic result before its outgoing hook; serialization cannot rely only on pausing an unfinished action. |
-| STY-14 | craft_default | Maintain compact serial memory for character strategy/state, relationships, information permissions, setup debt, rhythm, and exact handoff. |
-| STY-15 | reviewed_invariant | Calibrate each information release to what its visible carrier directly supports, while keeping unproved identity, cause, motive, or mechanism explicit as unresolved inference. |
-| STY-16 | craft_default | Before scene work, estimate each planned episode's shot and duration magnitude from the project's own accepted ratios, and resolve order-of-magnitude outliers in the map; the estimate informs the creator and never blocks delivery. |
-| STY-17 | reviewed_invariant | A premise device separates its creator-accepted contract (scope, failure conditions, cost, whether its own declarations are reliable) from in-fiction disclosure; the contract is accepted before the device first takes effect, while disclosure may lag, stay partial, or be misstated by a character or the device itself. Every later device ability or exemption traces to a contract clause—an untraceable one is retroactive widening—and the audience not yet knowing every boundary is never itself a defect. |
-| STY-18 | structural_invariant | A multi-episode source is read through a verified exact-byte episode index; source drift invalidates every old span, and resume derives missing IDs from the current episode map rather than a last-completed guess. |
-| STY-19 | craft_default | For a multi-episode source, the Agent chooses each batch from this file's measured episode spans, semantic complexity, and available context, then reads only the current slices and compact accepted handoff; no fixed episode quota substitutes for that judgment. |
+| STY-01 | craft_default | 把承诺写清为主角、追求、有代价的对抗与反复回报。 |
+| STY-02 | craft_default | 建立可重复的冲突引擎，其压力能改变权力、知识、关系、暴露、代价或时间。 |
+| STY-03 | reviewed_invariant | 节拍/单集的升级必须改变故事状态，而不是把同一压力重复得更响。 |
+| STY-04 | craft_default | 在压力已经活跃时进入，并在出去钩子之前兑现一部分已承诺的回报。 |
+| STY-05 | structural_invariant | incoming/setup/payoff 引用必须解析到已知记录，或显式标记未决。 |
+| STY-06 | taste_option | 钩子、弧线形态、集数与高潮位置遵从创作者的格式。 |
+| STY-07 | reviewed_invariant | 人物/场景合并必须保留戏剧功能、信息权限、关系位置与因果桥。 |
+| STY-08 | craft_default | 先通过有后果的行为、证据、空间压力或对白策略转译说明性信息，再考虑中性解释。 |
+| STY-09 | reviewed_invariant | 揭示/反转必须从已建立的事实中生长，并改变计划、解释、关系或有代价的选择。 |
+| STY-10 | craft_default | 在开场压力让反复回报的承诺可被读懂之后把它建立起来；开场可按题材与创作者意图暗示、延迟或直接陈述。每个出去钩子从本集局部结果出发规划，不按配额重复类型。 |
+| STY-11 | craft_default | 只建立预测当下选择所需的前史储备，然后在既有策略开始产生可见代价的窗口切入。 |
+| STY-12 | reviewed_invariant | 声称的人物成长必须引用压力测试、选择或退避、局部结果、代价和改变了的可见策略。 |
+| STY-13 | reviewed_invariant | 每集在出去钩子之前先产生局部戏剧结果；连载不能只靠暂停一个未完成的动作。 |
+| STY-14 | craft_default | 为人物策略/状态、关系、信息权限、铺垫债务、节奏与精确交接维护紧凑的连载记忆。 |
+| STY-15 | reviewed_invariant | 每次信息披露按其可见载体直接支持的范围校准；未被证明的身份、原因、动机或机制保持为显式的未决推断。 |
+| STY-16 | craft_default | 场景化之前，按项目自身已接受的比例估算各计划集的镜头与时长量级，并消解地图中数量级异常的集；估算告知创作者，从不阻断交付。 |
+| STY-17 | reviewed_invariant | 前提装置必须把创作者已接受的契约（范围、失效条件、代价、其自我声明是否可靠）与剧情内披露分开；契约在装置首次生效前接受，披露可以滞后、保持部分、或被人物或装置自己误述。此后每一项装置能力或豁免都要能指回某条契约条款——指不回去就是事后扩权——观众尚不知道全部边界本身永远不是缺陷。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

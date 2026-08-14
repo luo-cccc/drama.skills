@@ -8,35 +8,22 @@
 - [参考媒体与补拍](#参考媒体与补拍)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定）见 `references/runtime-preflight.md`，不在本文件重复。
+本阶段的补充：审查剧本来源引用时确认绑定的是 `screenplay-index.jsonl` 记录 ID 而非
+`screenplay.md` 整文件；整文件绑定视为可修正的做法问题，不单独阻断。
 
 ## 所有权边界
 
 - **本阶段拥有**：审查问题、审查结论与修订请求；证据指向被审查的产物与 hash。
+- **本阶段检查**：M1.5 分级/模型/空间/视图/片段完整性，M2→M5 的资产覆盖与逐镜绑定链，
+  以及图片规格、关键帧和运动规格的片段顺序、编译 manifest 和输出哈希；不替 owner 补写来源。
 - **本阶段继承**：精确的 artifact 引用、已接受限制与创作者覆盖。
 - **本阶段不越权**：不修改负责人的来源文件，不接受负责人自审，不用个人偏好替代证据。
   最终放行需要未参与创作的独立上下文；自检只能是 `PROVISIONAL`。
@@ -78,19 +65,20 @@
 
 ### `REV`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| REV-01 | structural_invariant | Run mechanical checks before spending creative review attention. |
-| REV-02 | structural_invariant | A finding includes artifact/hash, evidence, impact, required fix, owner, severity, and status. |
-| REV-03 | reviewed_invariant | Semantic invention cites the source fact and conflicting downstream fact. |
-| REV-04 | structural_invariant | Final approval requires a fresh reviewer context that did not author the targets; self-check or unattested review remains provisional, and reviewers cannot edit owner source. |
-| REV-05 | craft_default | Diagnose repeated structure or generic language with location and impact; do not label output merely "AI-ish". |
-| REV-06 | taste_option | Alternatives remain notes unless they violate an accepted creator constraint. |
-| REV-07 | structural_invariant | An end-to-end drafting request cannot impersonate creator acceptance; preview chains remain provisional and undeliverable. |
-| REV-08 | craft_default | When authorized text notes report production defects, trace text/subtitle residue, music-boundary violations, wardrobe drift, axis breaks, or lip-sync mismatch to the exact prompt/spec text and keep unobserved outcomes unknown. |
-| REV-09 | reviewed_invariant | After prompt revision or repackaging, recheck source coverage and every applicable accepted directive; correct asset bindings alone do not prove compliance. |
-| REV-10 | reviewed_invariant | A project-calibration finding distinguishes input-reference from generated-result observation, binds the exact project, prompt/spec hashes, stable reference slots, production configuration, method and limits, and—when its disposition calls for a change (see REV-11)—proposes the smallest owner-routed one with a preserve set; it does not generalize across projects or infer quality from task state. |
-| REV-11 | reviewed_invariant | A calibration finding carries `disposition` (keep, post_production, targeted_edit, resubmit, rewrite) and `disposition_rationale` before any revision text, justified by whether the defect is text-controllable and whether it has already recurred. Dispositions that call for no change leave `required_change` empty rather than inventing one. Resubmitting identical text and appending quality adjectives are not repairs; a recurring defect routes to a structural change instead. Findings outside project calibration use `not_applicable`. |
+| REV-01 | structural_invariant | 先跑机械检查，再花创作审查注意力。 |
+| REV-02 | structural_invariant | 一条 finding 包含 artifact/hash、证据、影响、必须达到的修订结果、负责人、严重程度与状态。 |
+| REV-03 | reviewed_invariant | 语义发明的 finding 引用来源事实与冲突的下游事实。 |
+| REV-04 | structural_invariant | 交付闸门的最终批准要求未创作过目标的 fresh reviewer 上下文；阶段闸门批准可来自 cold_read 冷读审查（当前上下文严格输入节食），或对照 fresh/cold base 结论的 delta_verify 核销（REV-12）；自检或无证明审查保持 provisional；审查者不得编辑负责人来源。 |
+| REV-05 | craft_default | 诊断重复结构或套话时给出位置与影响；不得只贴“AI 味”标签。 |
+| REV-06 | taste_option | 备选意见保持为 note，除非违反已接受的创作者约束。 |
+| REV-07 | structural_invariant | 端到端代写请求不能冒充创作者接受；预览链保持 provisional 且不可交付。 |
+| REV-08 | craft_default | 授权文字观察报告制作缺陷时，把文字/字幕残留、越界音乐、造型漂移、轴线断裂或口型不符追踪到精确的 prompt/spec 文本；未观察到的结果保持未知。 |
+| REV-09 | reviewed_invariant | 提示词修订或重新打包后，复查原文覆盖与每一条适用的已接受指令；仅修正资产绑定不能证明合规。 |
+| REV-10 | reviewed_invariant | 项目校准 finding 区分输入参考观察与生成结果观察，绑定精确项目、prompt/spec hash、稳定参考槽位、制作配置、方法与限制；当其处置要求修改时（见 REV-11），提出最小的、路由给负责人的修改并带 preserve set；不跨项目泛化，也不从任务状态推断质量。 |
+| REV-11 | reviewed_invariant | 校准 finding 在任何修订文本之前携带 `disposition`（keep、post_production、targeted_edit、resubmit、rewrite）与 `disposition_rationale`，依据是缺陷是否文本可控、是否已复发。不要求修改的处置让 `required_change` 留空，而不是编造一个。重复提交相同文本与追加质量形容词都不是修复；复发的缺陷路由到结构性修改。项目校准之外的 finding 用 `not_applicable`。 |
+| REV-12 | structural_invariant | delta_verify 复核仅在以下全部满足时才可批准：同一目标集存在 fresh_agent 或 cold_read 非临时 base 结论；base 的全部阻断 finding 被显式关闭或取代；保留事实存活；修订未越出已派发范围。越界改动、新增创作内容或交付终审，升级回 fresh reviewer。delta 结论在 `delta_basis` 中绑定 base，记录 `kind: delta_verifier`、`independent:false`，其自身绝不算作 fresh 上下文。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

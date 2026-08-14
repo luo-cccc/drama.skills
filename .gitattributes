@@ -1,1 +1,11 @@
+# 套件清单对文本先规范化为 LF 再计算 SHA-256，二进制仍按原始字节计算。
+# 文本文件仍强制 LF 检出，减少无意义的工作区行尾差异。
 * text=auto eol=lf
+
+# 二进制类型显式声明,不参与行尾转换。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pyc binary

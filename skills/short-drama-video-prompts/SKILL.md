@@ -8,17 +8,13 @@ license: MIT
 
 把分镜已经决定的一个镜头，写成按时间执行的动作、表演、摄影和声音。运动说明只实现起止边界，不能改写边界。
 
-预览、末端报告与补拍说明是创作者读的，跟随 `short-drama.json#/language`；
-送给视频生成器的**提示词正文**跟随 `#/format/prompt_language`（默认 `en`）。
-两个值都由 core `project_tool.py` 的 `status` 报出，不要各自猜默认值。改了描述语言
-不等于改了画面里说什么或写什么——那来自已接受的资产记录与文字政策。
-
 ## 先定位套件
 
 从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
 套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
 随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；本技能不读取其他技能的文件。
+该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
+例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
 
 ## 进入条件与权属
 
@@ -26,13 +22,19 @@ license: MIT
 - 所有权、下游文件何时变为 `stale` 或项目状态不清时，读
   [阶段契约](references/stage-contract.md) 的所有权边界；需要定位规则 ID
   或解释审查问题时，读同一文件的本阶段规则表。
-- 输入至少包含状态为 `accepted` 的镜头、起始关键帧/边界、时长、连续性终点与对白/声音引用；未接受或 `stale` 时退回 `$short-drama-storyboard`。
-- 若创作者明确要求全链预览，可对状态为 `provisional`、但没有 `unresolved` 问题的镜头/关键帧
+- 输入至少包含状态为 `accepted` 的镜头、起始关键帧/边界、时长、连续性终点与对白/声音引用；未接受或 `stale` 时退回 `$short-drama-storyboard`（全链预览与播种临时绑定走下方 provisional 例外）。
+- 若创作者明确要求全链预览，或镜头/关键帧本身因绑定 `proposed` 播种记录而处于
+  provisional，可对状态为 `provisional`、但没有 `unresolved` 问题的镜头/关键帧
   写候选运动说明；保留 `authority:candidate`，禁止声称已经 `accepted`、`approved` 或
-  `delivery-ready`。
+  `delivery-ready`，且不得进入交付容器。
 - 镜头的起点、终点、时长、对白、资产绑定和下一镜状态全部只读。运动规格只负责有序动作、表演过程、摄影与声音实现，以及派生的结束报告。
+- `short-drama.json#/format/generation_limits/max_clip_seconds` 是一次视频模型调用的上限，默认 15 秒；它限制生成片段，不改变影视镜头的叙事或剪辑边界。
+- 使用 `profile: motion`，逐项复用关键帧同一 generation asset/model/variant/View/fragment
+  ID+hash fingerprint 与绑定顺序，以 `continuity_lock` 加首尾边界、
+  动作、表演、摄影、声音和本镜排除项；不得重新总结资产身份或改写标准片段。
 - 视觉、声音和口型等审美选择读取 `short-drama.json#/creator_authority/{visual_direction,production_profile}`；
-  直接从本环节开始的项目若为 `unset`，就保留选择，不把默认配置写成已接受事实。
+  直接从本环节开始的项目若为 `unset`，就保留选择（不把默认配置写成已接受事实），
+  产物保持 `provisional`、不声称已接受形态约束，直到形态确定。
 - 先写不绑定供应商的通用文本。不得生成视频或音频、上传参考帧、创建远程执行任务、调用模型接口、轮询状态或宣称成片质量。
 
 ## 按任务加载资料
@@ -45,6 +47,7 @@ license: MIT
 | 自检、独立复核、正反案例 | [审查量表与合成案例](references/review-and-fixtures.md) |
 | 生产端提示词写法、台词绑定、负面清单 | [生产提示词语法惯例](references/production-prompt-grammar.md) |
 | 分段交付、槽位职责、时长分配、交付路由与执行触发词 | [交付档案与槽位语义](references/delivery-profile.md) |
+| 一镜多次模型调用、片段覆盖与续接交接 | [生成片段模板](assets/generation-clip.jsonl.md) |
 | 多张参考图的用途、补拍或替代版范围 | [阶段契约](references/stage-contract.md) 的参考媒体与补拍 |
 
 规格使用 [运动规格模板](assets/motion-spec.jsonl.md)；末镜或下一集记录尚未建立时参考
@@ -95,9 +98,21 @@ license: MIT
    写清动作接触、物件归属、位置或可观察结果，抽象的“处理、履行、完成”不能替代这些事实；
    终点若只要求过程开始，也不得擅自推进到完成。结束报告只用于比较，不是新的权威来源。
 
+运动规格完成后建立 `generation-clips.jsonl`。它把一个 accepted shot 覆盖成连续的模型调用
+窗口，不产生新的剪辑镜头；每片段绑定同一 shot 与 motion，后续片段写明 planned boundary。
+不得把 `ordered_subject_motion` 的普通时间段直接当成生成片段。
+
 ### 4. 不重复参考帧已经说明的内容
 
 如果绑定的参考帧已经说明人物外貌、服装、场景构图和光线，正文就聚焦“从此刻开始怎么变”。只重复动作执行中容易出错的局部事实，如“右手仍握住铜夹”。不要复制完整人物/场景设定，也不要用“与参考一致”替代必要的起点信息。
+
+`motion-specs.jsonl` 使用统一编译接口并调用 `prompt_compile.py` 的 `motion` profile。
+Markdown 保持“固定资产基线 / 状态增量 / 当前任务 / 排除项”的语义顺序，章节标题跟随
+`prompt_language`。
+固定主线每个已接受 shot 至少有一条 motion spec；每条 motion 的资产顺序、model/View/variant
+和 canonical fragment ID+hash 指纹必须与其 `shot_ref` 及首关键帧完全相同。每条记录固定使用
+`profile: motion`，不能在视频阶段替换资产、补建变体、重排片段或从 M2 允许集合中另选
+View/片段版本。
 
 每条参考绑定还要声明稳定 `slot_id`、显式 `order` 与 `role / may_control / must_not_control`。
 数组重排或插入参考不得改变已有槽位用途。身份参考不自动决定
@@ -140,13 +155,21 @@ license: MIT
 ```bash
 python3 <skill-dir>/scripts/container_check.py \
   剧集/EP001/storyboard/delivery-containers.jsonl \
-  --shots 剧集/EP001/storyboard/shots.jsonl
+  --shots 剧集/EP001/storyboard/shots.jsonl \
+  --motions 剧集/EP001/storyboard/motion-specs.jsonl
 ```
 
 逐个容器都正确不代表全集的账是对的：一个镜头同时进两个容器会让全集时长凭空多一段，
 一个镜头谁都没装会让它无声消失——**两种错误在单容器视角下都看不见**。脚本做的是集合
 与算术比对：成员是否重复认领、成员是否属于本集、容器时长是否等于成员之和、容器加散镜
-是否正好等于全集总时长。
+是否正好等于全集总时长（`VID-15`）。
+
+`--motions` 打开 `VID-13` 的容器结构校验：成员 `order` 唯一连续、成员 `accepted_duration`
+等于其 `accepted_duration_ref` 指向的分镜值、`container_duration` 等于成员 `accepted_duration`
+之和、`motion_ref` 链回成员 `shot_ref` 一致、`binding_chain_equal` 须逐成员解析
+`location_binding_ref`/`asset_bindings_ref` 后相同才能为 `true`、`membership_basis` 三项
+都有结论。这些是记录自身的本地可证声明，脚本逐条对照 `shots.jsonl` 与 `motion-specs.jsonl` 的
+活内容核对，不依赖渲染文本。
 
 未装容器的散镜是合法的，脚本只报告不判错；时长尚未确定的镜头列在 `unmeasured_shots`
 并排除在总和之外，这样"还没做完"不会被当成"做错了"。
@@ -165,6 +188,21 @@ python3 <skill-dir>/scripts/motion_timing_check.py \
 与实际覆盖不一致，以及 `boundary_refs.duration` 相对镜头已接受时长过期。
 `relative` 计时不做算术断言，列在 `relative_plans` 里报告而不是判过。
 
+随后用 [generation_clip_check.py](scripts/generation_clip_check.py) 核对模型调用边界：
+
+```bash
+python3 <skill-dir>/scripts/generation_clip_check.py \
+  剧集/EP001/storyboard/generation-clips.jsonl \
+  --shots 剧集/EP001/storyboard/shots.jsonl \
+  --motions 剧集/EP001/storyboard/motion-specs.jsonl \
+  --project short-drama.json
+```
+
+每个 accepted shot 必须从 0 秒连续覆盖到镜头终点，每个片段不超过项目配置上限。
+校验器阻断顺序错误、间隙、重叠、错误 motion 引用、交接五槽位不完整和未经项目许可的
+continuation。真实 continuation 还必须让上一片段 `output_observation_ref` 与当前 handoff 的
+观察引用完全一致；没有观察时保持 `independent`。
+
 若当前版本是局部补拍或替代实现，才增加 `coverage_scope` 并标明 `pickup | alternate`，
 按 [补拍/替代范围片段](assets/coverage-scope.fragment.json) 用同一文件内稳定的运动记录 ID
 说明母版和补充关系；每项原文要求都要对应到
@@ -180,10 +218,14 @@ python3 <skill-dir>/scripts/motion_timing_check.py \
 先向创作者展示起止边界摘要、动作/表演顺序、摄影/声音选择、时长警告和可复制提示词。接受后写：
 
 - `剧集/<EP>/storyboard/motion-specs.jsonl`：运动规格字段和只读来源引用；
+- `剧集/<EP>/storyboard/generation-clips.jsonl`：模型调用窗口、时长上限、片段顺序与交接；
 - `剧集/<EP>/storyboard/delivery-containers.jsonl`：**仅当项目声明了多镜交付容器时**，
   记录容器成员顺序、各成员已接受时长的只读引用与容器时长，模板见
   [delivery-container.jsonl.md](assets/delivery-container.jsonl.md)；
 - `剧集/<EP>/storyboard/video-prompts.md`：由已接受规格、容器记录和配方 `hash` 生成的文本版本。
+
+发布 `video-prompts.md` 时，工具核对当前 motion source hash 与逐镜编译正文，同时要求列全
+generation clip ID、clip 文件 hash 和已有 container ID；任何缓存漂移都会在 candidate 写入前阻断。
 
 自然语言改提示词时，先展示规格字段怎样变化和重新生成的文本预览；若改动触碰分镜或
 剧本负责的内容，保持当前文件不变，并把修改请求交给对应技能。跨文件发布遵循主技能的
@@ -197,3 +239,4 @@ python3 <skill-dir>/scripts/motion_timing_check.py \
 - 交付文本只含要拍出来的画面内容：没有参考图文件名、版本号、内部标记、草图指代或任务备注；同一角色的参考绑定在每次提及处一致，不出现只绑一半的写法；
 - 本地结构检查后交 `$short-drama-review` 结合来源资料审查是否可执行、是否改写原意；
 - 没有媒体文件、供应商接口或远程任务字段、远端 ID 或“视频已生成”声明。
+- 编译结果、片段哈希和 manifest 完全一致；自由改写以 `BLK-PROMPT-COMPILE` 阻断。

@@ -13,7 +13,8 @@ license: MIT
 从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
 套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
 随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界与规则表；本技能不读取其他技能的文件。
+该文件同时给出本阶段的所有权边界与规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
+例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
 
 ## 先判断入口
 
@@ -28,6 +29,25 @@ license: MIT
 
 确认创作者约束、已接受的上游事实、本集进入状态和待兑现铺垫。若修订已有剧本，引用当前文件而不是凭对话记忆重写。本阶段拥有什么、继承什么见 [阶段契约](references/stage-contract.md)。
 
+固定主线必须记录实际消费的 generation 资产范围、资产或空间模型、视图与标准片段记录级输入。
+它们约束身份和世界事实，但不得把模型字段或视觉提示词塞进剧本正文。
+这些记录在 `episode-card.json#generation_asset_bindings` 中逐资产列出：`asset_id`、唯一
+`model_id`、本集允许下游选择的 `view_ids`、剧本明确需要的 `variant_ids` 和覆盖它们的
+`fragment_ids`。`view_ids` 不是景别或机位决定；它只限定 M4b 可选择的已接受 View 契约，
+逐镜实际 `view_id` 由 storyboard owner 决定。
+该清单必须与发布时的 `--input-record` 完全对应；只绑定一份文件或一个代表资产不能满足 M2。
+
+`设定集/*.jsonl` 存在身份记录（含 `proposed` 播种记录）时，按记录级绑定读取，作为
+本集的演员表与世界观约束：人物姓名、称谓、身份、地点与关键道具须与设定一致；
+设定集为空（全新项目直接写第一集）时不阻断，但提示创作者先播种可避免后续返工。
+剧本需要引入设定集之外的新角色、地点或关键道具时，正常写作，并在交接胶囊或给
+创作者的说明中标记为「待播种」，交给 `$short-drama-assets` 补录身份层记录。
+「待播种」不得卡死 candidate 生产：本阶段先发布剧本候选并重建 index，assets owner 可从
+精确 index 记录播种身份层记录（`authority: candidate`、`proposed`）。创作者确认后，生命周期
+按“身份播种 → 资产等级 → 模型/View → 标准片段 → 重发布并接受剧本”逐层推进；剧本接受前
+再次修订时，只刷新受改动 block 波及的播种、基线和片段。缺任一层时剧本可预览但不可接受，
+报告 `BLK-M2-ASSET-REF`。
+
 ### 2. 确定单集契约的唯一 owner
 
 - **有 accepted `项目开发/episode-map.jsonl` 记录**：复制
@@ -35,7 +55,10 @@ license: MIT
   pointer 和写作执行选择；不复制、不改写 incoming/objective/turn/payoff/handoff。
 - **没有 development map 的 script-first 项目**：复制
   [episode-card-standalone.json](assets/episode-card-standalone.json)，以 `write_standalone`
-  模式拥有最小单集契约。
+  模式拥有最小单集契约。EP n>1 时，单集卡必须包含从上集 outgoing 得出的
+  incoming 摘要（知识、持物、伤势、关系、决定的开场状态）；上集已有 continuity
+  记录时逐条绑定，还没有资产台账时以已接受的上集剧本与单集卡为 incoming 来源；
+  与上集 outgoing 冲突时显式处理，不静默改写。
 
 同一集不得同时激活两个模式。若后续建立 development map，先做语义
 diff，让创作者明确选择 authority 迁移，将 standalone 契约标记 superseded，
@@ -117,6 +140,10 @@ source issue 的 refs 都保持 candidate；accepted 剧本发布后再以默认
 
 修订时同时传 `--previous-index` 和 `--previous-source`。完全相同且唯一的邻近块复用 stable ID；拆分、合并或重复块歧义会写入 `mapping_review_request`，必须显式重映射。索引器绝不改写 `screenplay.md`。
 
+**每次修订剧本后必须重建 index**——下游（资产、图片提示词、分镜、视频提示词、审查）
+引用剧本一律绑定 `screenplay-index.jsonl` 的记录 ID，不直接绑定 `screenplay.md`
+整文件；未变 block 的记录 ID 与 hash 稳定，只有实际改动波及的记录会让下游标 `stale`。
+
 ### 5b. 需要配音本时（可选）
 
 创作者要为录音准备台词表时，复制
@@ -180,6 +207,7 @@ python3 <skill-dir>/scripts/voice_sheet_check.py 剧集/EP001/voice-record-sheet
 - `剧集/<EP>/beats.jsonl`
 - `剧集/<EP>/screenplay.md`
 - 由剧本生成的 `screenplay-index.jsonl`
+- `剧集/<EP>/voice-record-sheet.jsonl`（配音稿，逐行绑定剧本 block）
 - 规范化预览与语义修订差异
 
 资产身份、分镜边界、图片/视频提示词及终审结论属于其他技能。本技能不生成媒体。

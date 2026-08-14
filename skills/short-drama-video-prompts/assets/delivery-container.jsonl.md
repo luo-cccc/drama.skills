@@ -12,7 +12,7 @@
   "container_id": "CONT-<stable-id>",
   "status": "candidate",
   "production_profile_ref": {
-    "owner": "short-drama",
+    "owner": "creator",
     "artifact": "short-drama.json",
     "hash": "<sha256>",
     "field": "/creator_authority/production_profile"

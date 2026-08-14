@@ -40,6 +40,14 @@ DIALOGUE = re.compile(
 )
 
 
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
 class CheckError(ValueError):
     """The inputs cannot be checked at all, as opposed to failing a check."""
 
@@ -54,7 +62,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            record = json.loads(line)
+            record = _json_loads(line)
         except json.JSONDecodeError as error:
             raise CheckError(f"invalid JSONL at {path.name}:{number}") from error
         if not isinstance(record, dict):
@@ -246,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     except (CheckError, OSError) as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 2
-    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False))
     return 0 if result["status"] == "pass" else 1
 
 

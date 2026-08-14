@@ -1,6 +1,6 @@
 ---
 name: short-drama-develop
-description: 将中文小说、短剧或漫剧想法、梗概、改编材料、已有系列笔记或多集完整剧本发展成可追溯的改编方案、戏剧方向、创作简报、导演阐述、故事引擎与分集地图，并按题材与制作形态（画风）选择写法。用户提出“导入小说做短剧”“从多集整稿生成/补分集地图”“开发短剧/漫剧”“做故事设定/系列大纲/分集规划”“写导演阐述”“这个题材怎么写”“定画风/制作形态”“把这个点子变成短剧”或需要梳理人物冲突与集间交接时使用；已有单集剧本可直接进入写作、资产或审查流程，不强制补开发文件。
+description: 将中文小说、短剧或漫剧想法、梗概、改编材料、已有系列笔记或多集完整剧本发展成可追溯的改编方案、戏剧方向、创作简报、导演阐述、故事引擎与分集地图，并按已定题材与制作形态（画风）选择写法。用户提出“导入小说做短剧”“从多集整稿生成或补分集地图”“开发短剧/漫剧”“做故事设定/系列大纲/分集规划”“写导演阐述”“这个题材怎么写”“把这个点子变成短剧”或需要梳理人物冲突与集间交接时使用；已有单集剧本可直接进入写作、资产或审查流程，不强制补开发文件。“定画风/制作形态”由 `$short-drama` 本身处理（见其意图路由表），不在本技能内选择形态。
 license: MIT
 ---
 
@@ -13,7 +13,8 @@ license: MIT
 从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
 套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
 随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；本技能不读取其他技能的文件。
+该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
+例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
 
 ## 先判断入口
 
@@ -24,8 +25,8 @@ license: MIT
 3. **方向已定，只需规划分集**：读取既有简报与引擎，直接制作或修订分集地图。
 4. **已有单集剧本**：不要为了流程完整而虚构开发材料。写/改剧本交给 `$short-drama-write`；拆资产或后续制作可从相应技能直接进入。
 5. **已有多集整稿，要生成或补分集地图**：保留原文件，只加载
-   [多集整稿接入与断点续跑](references/multi-episode-intake.md)。让 Agent 按文件实际结构决定
-   边界与本轮批次；工具只做精确索引、单集切片、校验和续跑，不代写创作判断。
+   [多集整稿接入与断点续跑](references/multi-episode-intake.md)。先按文件实际结构建立一次
+   精确索引，此后逐集读取、按明确批次合并并从磁盘恢复进度，不把整稿塞进一次上下文。
 
 信息足够时直接工作。只有会改变主角、冲突引擎、结局承诺或改编边界的缺口才需要提问。
 
@@ -81,6 +82,9 @@ license: MIT
 
 ### 5. 做所有者检查并交接
 
+交接时列出可能建档的人物、生物、常驻/需调度场景、关键道具、载具和反复效果，附跨集复用、
+近景、空间调度与叙事关键性依据，供资产技能提议 `full/compact`。开发层不拥有 M1.5 模型或片段。
+
 在提交预览前检查：
 
 - 引用的集、铺垫和兑现记录可找到，未决项被明确标记；
@@ -114,8 +118,8 @@ license: MIT
 - `项目开发/adaptation-map.jsonl`（长材料改编时；只保留输入 locator/span/hash、
   去引用的功能摘要、候选去向与未决项，不复制原文；例见
   [adaptation-map.example.jsonl](assets/adaptation-map.example.jsonl)）
-- `项目开发/series-arc.json`（项目需要时）
-- `项目开发/episode-intake-index.json`（多集整稿接入时；可重建的机械索引，不是创作事实）
+- `项目开发/series-arc.json`（项目需要时；创作者可读的全局走向参考，不作为下游技能输入）
+- `项目开发/episode-intake-index.json`（多集整稿接入时；绑定原始字节的机械索引）
 - `项目开发/episode-map.jsonl`
 
 它不写场景动作与台词，不拆资产，不写图片/视频提示词，不生成媒体，也不签发终审结论。剧本语义由 `$short-drama-write` 接管。
@@ -124,8 +128,6 @@ license: MIT
 
 - **承诺、引擎、人物压力、升级与铺垫兑现**：[story-craft.md](references/story-craft.md)
 - **分集契约、因果节拍、集间交接与地图修订**：[episode-design.md](references/episode-design.md)
-- **已有多集完整剧本/散稿，要避免整稿进入上下文并可中断续跑**：
-  [multi-episode-intake.md](references/multi-episode-intake.md)
 - **人物驱动力、前史与切入、跨集变化、信息权限、双轨节奏与恢复记忆**：
   [serial-character-and-memory.md](references/serial-character-and-memory.md)
 - **有原材料、需要压缩/合并人物场景/把信息视觉化**：
@@ -143,3 +145,5 @@ license: MIT
 - **起草项目级视觉方向与生产规则（导演阐述）**：
   [director-brief-craft.md](references/director-brief-craft.md)
 - **本阶段拥有什么、继承什么、不越权什么**：[stage-contract.md](references/stage-contract.md)
+- **已有多集完整剧本或散稿，需要逐集切片并可中断续跑**：
+  [multi-episode-intake.md](references/multi-episode-intake.md)

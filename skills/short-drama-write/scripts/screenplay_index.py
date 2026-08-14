@@ -31,6 +31,14 @@ if sys.version_info < MINIMUM_PYTHON:
     )
 
 SCHEMA_VERSION = "1.0.0"
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
 SUPPORTED_TAGS = ("VO", "OS", "SFX", "画面文字", "连续性", "转场")
 KIND_CODES = {
     "scene_heading": "H",
@@ -411,7 +419,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            value = json.loads(line)
+            value = _json_loads(line)
         except json.JSONDecodeError as error:
             raise ValueError(f"{path.name}:{line_number}: invalid JSONL: {error.msg}") from error
         if not isinstance(value, dict):
@@ -702,7 +710,10 @@ def _public_block(block: dict[str, Any], source_ref: dict[str, str]) -> dict[str
 def _atomic_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(
-        json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        json.dumps(
+            record, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
+        + "\n"
         for record in records
     ).encode("utf-8")
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -891,9 +902,12 @@ def main(argv: list[str] | None = None) -> int:
             speakers=args.speaker,
         )
     except (OSError, UnicodeDecodeError, ValueError) as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        print(
+            json.dumps({"error": str(error)}, ensure_ascii=False, allow_nan=False),
+            file=sys.stderr,
+        )
         return 1
-    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(summary, ensure_ascii=False, sort_keys=True, allow_nan=False))
     if args.fail_on_review and summary["review_status"] != "clean":
         return 2
     return 0

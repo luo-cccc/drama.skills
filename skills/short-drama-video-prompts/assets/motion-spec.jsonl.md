@@ -20,6 +20,14 @@
     "record_id": "KEY-<id>",
     "owner": "short-drama-storyboard"
   },
+  "asset_bindings": [
+    {
+      "asset_id": "CHAR/CREATURE/LOC/PROP/VEHICLE/EFFECT-<id>",
+      "model_ref": {"owner": "short-drama-assets", "artifact": "设定集/generation/asset-models.jsonl | 设定集/generation/spatial-models.jsonl", "hash": "<sha256>", "record_id": "MODEL/SPATIAL-<id>"},
+      "variant_ref": {"owner": "short-drama-assets", "artifact": "设定集/generation/variant-models.jsonl", "hash": "<sha256>", "record_id": "VAR-<id>"},
+      "view_ref": {"owner": "short-drama-assets", "artifact": "设定集/generation/view-contracts.jsonl", "hash": "<sha256>", "record_id": "GVIEW-<id>"}
+    }
+  ],
   "production_profile_ref": {
     "owner": "creator",
     "artifact": "short-drama.json",
@@ -195,14 +203,22 @@
       "rationale": "<理由>"
     }
   ],
-  "generic_prompt": "<从本规格渲染的可复制通用视频提示词>",
-  "derivation": {
-    "recipe_version": "<version>",
-    "input_hashes": [
-      "<sha256>"
+  "task_and_format": "<视频时长、边界、交付格式；不重述资产外观>",
+  "prompt_components": {
+    "profile": "motion",
+    "fragment_refs": [
+      {"fragment_id": "FRAG-STYLE-<id>", "hash": "<sha256>"},
+      {"fragment_id": "FRAG-IDENTITY-<id>", "hash": "<sha256>"},
+      {"fragment_id": "FRAG-CONTINUITY-<id>", "hash": "<sha256>"},
+      {"fragment_id": "FRAG-VARIANT-<id>", "hash": "<sha256>"},
+      {"fragment_id": "FRAG-VIEW-<id>", "hash": "<sha256>"},
+      {"fragment_id": "FRAG-NEGATIVE-<id>", "hash": "<sha256>"}
     ],
-    "rendered_hash": "<sha256>"
+    "local_instructions": ["<首尾边界、动作、表演、摄影与声音>"],
+    "local_negative_constraints": ["<当前镜头排除项>"]
   },
+  "compilation_manifest": {"compiler_version": "1.0", "fragment_hashes": {"FRAG-<id>": "<sha256>"}, "output_hash": "<sha256>"},
+  "generic_prompt": "<prompt_compile.py 的确定性编译结果，不得自由改写>",
   "provenance": "creator_project"
 }
 ```
@@ -226,3 +242,7 @@
 `next_start_locator`。附加参考为空时使用空数组；对白说话者与声音方向只有在已接受引用存在时才填写。
 母版、补拍和替代关系保留在同一规格文件内，替代决定由独立审查结论拥有。具体取舍按
 `references/motion-recipe.md` 与 `references/review-and-fixtures.md` 判断。
+`generic_prompt` 只能由 `short-drama-image-prompts/scripts/prompt_compile.py` 编译；对应 Markdown
+保持“固定资产基线 / 状态增量 / 当前任务 / 排除项”的语义顺序，标题跟随
+`prompt_language`。编译器逐资产验证 model/variant/View/片段与 profile，不能用另一个资产的
+哈希正确片段替代当前绑定。

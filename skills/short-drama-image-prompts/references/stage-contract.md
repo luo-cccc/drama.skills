@@ -8,35 +8,20 @@
 - [参考媒体与补拍](#参考媒体与补拍)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定，含剧本经 `screenplay-index.jsonl` 记录 ID 绑定）见
+`references/runtime-preflight.md`，不在本文件重复。
 
 ## 所有权边界
 
-- **本阶段拥有**：项目级 lookdev 风格帧、资产图片的构图与定点修改选择；渲染出的提示词文本是缓存。
+- **本阶段拥有**：M1.5b 标准提示片段与浏览库、确定性提示编译器、项目级 lookdev 风格帧、
+  资产图片的构图与定点修改选择；渲染出的提示词文本和 compilation manifest 是缓存。
 - **本阶段继承**：已接受的视觉方向与制作配置、资产身份与变体、当前用途、文字政策；高压力
   lookdev frame 还继承准确剧本 block 的场次事实与信息权限。
 - **本阶段不越权**：不承载有先后顺序的剧情动作，不改写资产身份、地理或故事状态，不决定
@@ -80,20 +65,21 @@
 
 ### `IMG`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| IMG-01 | structural_invariant | Prompt specs bind exact accepted asset and variant IDs. |
-| IMG-02 | craft_default | Put distinguishing identity, geometry, scale, or state before generic quality language. |
-| IMG-03 | reviewed_invariant | Character sheets preserve identity while depicting one coherent Look. |
-| IMG-04 | reviewed_invariant | Location plates preserve geography, orientation, anchors, material, and light, normally without cast. |
-| IMG-05 | reviewed_invariant | Prop plates preserve scale, shape, material, wear, function, and text policy. |
-| IMG-06 | structural_invariant | Edit prompts declare exact target, changes, preserve set, and expected continuity impact. |
-| IMG-07 | structural_invariant | Readable text cannot coexist with a global no-text constraint. |
-| IMG-08 | reviewed_invariant | A claim about reference pixels requires a creator/reference-owner description or authorized input-reference observation bound to the inspected bytes; otherwise admission stays unresolved, and a negative prompt cannot stand in for evidence. |
-| IMG-09 | reviewed_invariant | Each reference states its purpose, what may be copied, and what must not be copied; a composition-, scale-, or effect-only reference cannot redefine identity, content, text, or story state. |
-| IMG-10 | reviewed_invariant | Views of one Location in the same time/weather state share key-light source, colour-temperature relation, and contrast direction; any difference cites a recorded cause and its delta. |
-| IMG-11 | reviewed_invariant | A lookdev frame binds accepted visual direction and production profile across a declared character-expression, core-location, or high-pressure test axis; a high-pressure frame also binds exact screenplay blocks for story state and information permission, while style references may control only declared surface treatment and never identity, fixed geography, story state, cast count, or prop text. |
-| IMG-12 | reviewed_invariant | Every multi-reference binding carries a stable `slot_id` and explicit unique `order`, so array reordering or insertion cannot silently change a reference's role; until a project validator owns this check, the reviewer cites conflicting slots/orders rather than claiming mechanical enforcement. |
+| IMG-01 | structural_invariant | 提示词规格绑定精确的已接受资产与变体 ID；仅当引用标 `authority:candidate`、产物标 `provisional`/`not delivery-ready`、且在被绑定记录接受前不接受时，才允许绑定 proposed 播种记录。 |
+| IMG-02 | craft_default | 有区分度的身份、几何、尺度或状态先于泛化质量词。 |
+| IMG-03 | reviewed_invariant | 人物设定图在描绘一套连贯造型的同时保持身份。 |
+| IMG-04 | reviewed_invariant | 场景板保持地理、朝向、锚点、材质与光，通常不带人物。 |
+| IMG-05 | reviewed_invariant | 道具板保持尺度、形制、材质、磨损、功能与文字政策。 |
+| IMG-06 | structural_invariant | 局部编辑提示词声明精确目标、修改项、保留集与预期连续性影响。 |
+| IMG-07 | structural_invariant | 可读文字不得与全局 no-text 约束并存。 |
+| IMG-08 | reviewed_invariant | 关于参考图像素的主张，需要创作者/参考图权利人对被检查字节的说明，或经授权的输入参考图观察；否则保持未决，负面提示词不能充当证据。 |
+| IMG-09 | reviewed_invariant | 每张参考图声明其用途、可照搬内容与不得照搬内容；仅构图、尺度或效果参考不得重定义身份、内容、文字或故事状态。 |
+| IMG-10 | reviewed_invariant | 同一 Location 在相同时段/天气状态下的各 View 共享主光源、色温关系与对比方向；任何差异必须引用已记录的原因及其 delta。 |
+| IMG-11 | reviewed_invariant | 风格帧在已声明的人物表现、核心地点或高压力测试轴上绑定已接受的视觉方向与制作形态；高压力帧还要为故事状态与信息权限绑定精确剧本 block；风格参考只能控制已声明的表面处理，绝不控制身份、固定地理、故事状态、人数或道具文字。 |
+| IMG-12 | reviewed_invariant | 每个多参考绑定携带稳定 `slot_id` 与显式唯一 `order`，数组重排或插入不得静默改变参考用途；在项目校验器接管此检查之前，审查者引用冲突的槽位/顺序，而不声称机械强制。 |
+| IMG-13 | structural_invariant | 固定主线 M4a 的 `image-prompt-specs` 必须使用 `asset_board` profile，每条具有唯一 `spec_id` 且只绑定一个资产；合并后覆盖 M2 每个资产的基线板、全部允许 View 与全部 generation variant。每条 model/View/variant/fragment ID+hash 必须形成唯一 fingerprint，不得以代表性板图替代未消费状态。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

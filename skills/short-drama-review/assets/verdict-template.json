@@ -1,5 +1,6 @@
 {
   "review_id": "REVIEW-EXAMPLE",
+  "artifact_id": "EP001:script",
   "scope": [
     "story_script"
   ],
@@ -15,8 +16,14 @@
     "artifact": "审查/findings.jsonl",
     "hash": "<sha256>"
   },
+  "review_bundle_ref": {
+    "owner": "short-drama-review",
+    "artifact": ".short-drama/review-bundles/<review-id>.json",
+    "hash": "<sha256>"
+  },
   "requested_review_mode": "independent_agent",
   "effective_review_mode": "unattested",
+  "delta_basis": null,
   "reviewer": {
     "owner": "short-drama-review",
     "kind": "unattested",

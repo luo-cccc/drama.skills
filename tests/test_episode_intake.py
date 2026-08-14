@@ -299,6 +299,25 @@ class ProgressAndMergeTests(unittest.TestCase):
         self.assertEqual(self.next_map.read_bytes(), before_map)
 
 
+class StrictJsonTests(unittest.TestCase):
+    def test_index_and_jsonl_reject_non_finite_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            index = root / "index.json"
+            index.write_text('{"episodes":[],"value":NaN}', encoding="utf-8")
+            with self.assertRaises(json.JSONDecodeError):
+                episode_intake._load_index(index)
+
+            records = root / "records.jsonl"
+            records.write_text('{"episode_id":"EP001","value":Infinity}\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid JSONL"):
+                episode_intake._read_jsonl(records)
+
+    def test_serialization_rejects_non_finite_numbers(self) -> None:
+        with self.assertRaises(ValueError):
+            episode_intake._json_bytes({"value": float("nan")})
+
+
 class CliTests(unittest.TestCase):
     def test_unicode_space_paths_end_to_end_and_error_preserves_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

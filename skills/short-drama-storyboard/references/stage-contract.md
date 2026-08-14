@@ -8,33 +8,18 @@
 - [参考媒体与补拍](#参考媒体与补拍)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。逐场 `coverage-auditions/<SC>.jsonl` 与
-   `scene-visual-plans/<SC>.jsonl` 的 `<SC>` 必须采用 `SC001` 式规范 ID，且文件名必须和记录中
-   可解析的 `scene_ref` 一致；`publish` 只机械核对这项路径/引用一致性，不借此扩张成创作内容 schema。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定，含剧本经 `screenplay-index.jsonl` 记录 ID 绑定）见
+`references/runtime-preflight.md`，不在本文件重复。
+本阶段的补充：逐场 `coverage-auditions/<SC>.jsonl` 与 `scene-visual-plans/<SC>.jsonl`
+的 `<SC>` 必须采用 `SC001` 式规范 ID，且文件名必须和记录中可解析的 `scene_ref` 一致；
+`publish` 只机械核对这项路径/引用一致性，不借此扩张成创作内容 schema。
 
 ## 所有权边界
 
@@ -43,6 +28,8 @@
 - **本阶段继承**：剧本的信息权限与原文要求；资产的身份与变体绑定。
 - **本阶段不越权**：不用风格词改写人物状态，不新建资产身份，不改写剧本事实。镜头边界
   拥有起止位置、姿态、目光、双手、持物与可见连续性；关键帧只投影这些事实，永不覆盖它们。
+- **本阶段继承**：每镜准确的 generation 模型、变体、View 与标准片段版本；关键帧只增加
+  当前构图/边界任务并通过确定性编译，不重新定义资产。
 
 ## 制作形态需要什么
 
@@ -83,39 +70,39 @@
 
 ### `SHT`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| SHT-01 | structural_invariant | Every production-relevant screenplay block has a coverage disposition. |
-| SHT-02 | reviewed_invariant | Each shot has a dramatic/viewing purpose and preserves its source meaning. |
-| SHT-03 | craft_default | Keep a short shot focused on the smallest action/reaction unit that carries its purpose; combine or split it according to performance, information, and continuity rather than a fixed count. |
-| SHT-04 | craft_default | Change framing/camera because attention, pressure, alignment, reveal, or rhythm changes. |
-| SHT-05 | structural_invariant | A keyframe projects one accepted shot boundary and exact asset variants. |
-| SHT-06 | reviewed_invariant | A keyframe is one freezeable instant, not an ordered action chain. |
-| SHT-07 | taste_option | Lens vocabulary, tempo, and locked/handheld/formal style follow visual direction. |
-| SHT-08 | reviewed_invariant | Each authoritative source action is realized once; repeated coverage adds reaction/detail/recontextualization rather than replaying it. |
-| SHT-09 | reviewed_invariant | Exact Location/View orientation and visible anchors match the camera side used by the shot. |
-| SHT-10 | reviewed_invariant | Rendered keyframe prose contains only facts from the boundary that keyframe declares. A start frame carries no state first created by the shot's motion or end; an end frame carries no state already spent before it. Neither frame borrows the other's facts. |
-| SHT-11 | craft_default | When information changes another person's power, relationship, knowledge, or choice, preserve that reception visibly; shot count, framing, and duration follow the consequence and project profile. |
-| SHT-12 | reviewed_invariant | Each audience-visibility fact binds its exact source, carrier, permission, trigger, and protection method; framing neither reveals that fact early nor hides the carrier this shot must communicate. |
-| SHT-13 | reviewed_invariant | Multi-character blocking projects sourced, directed relationships into compatible positions, gaze, distance, and action lines for the current boundary. |
-| SHT-14 | reviewed_invariant | A contested moving object preserves ownership, trajectory, direction, time/round state, and end location across cuts unless an authorized ellipsis says otherwise. |
-| SHT-15 | reviewed_invariant | When the creator has declared delivery-surface overlay regions with their permanence and source, what a shot must be read for—face and gaze, readable evidence text, the decisive hand action—does not sit only inside those regions, and shots bind the declared version. An undeclared surface leaves the rule inactive: record it as unresolved and do not restage against a guessed region. |
-| SHT-16 | structural_invariant | Coverage carries an episode duration total that is the arithmetic sum of its shots' accepted `duration_seconds`; every shot the coverage lists either contributes a number or is named in `unresolved_durations`, so no shot leaves the total silently. When the project declares a target per episode, the record binds that field and states the signed delta; the delta is reported to the creator and never blocks on its own. |
-| SHT-17 | structural_invariant | A keyframe declares which boundary it freezes and binds that shot's matching boundary field. An end keyframe is a projection of `end_boundary`, never a second end-state authority, and per-shot keyframe count stays open: one start frame by default, an end frame only when the delivery workflow consumes it. Handing over a start/end pair delegates the motion between them to interpolation, so an action the shot exists for cannot rest on that gap alone. |
-| SHT-18 | craft_default | For a scene where directing choice materially changes audience knowledge, alignment, spatial pressure, performance ownership, or the landing, an accepted scene visual plan may bridge project direction and shots; it binds exact screenplay blocks, direction/profile, Location/View and relevant asset states, ordinary scenes skip it, and it never owns screenplay facts or shot boundaries. |
-| SHT-19 | reviewed_invariant | When a coverage audition is used, its approaches genuinely differ by knowledge timing, alignment, performance space, strongest image, landing, losses, or production fit; it uses no fixed option, grid, framing, or shot-count formula, and an independent creator acceptance record binds the exact audition hash and names an existing selected approach before the formal plan or shots. |
-| SHT-20 | reviewed_invariant | Shot revision identity follows directing responsibility rather than array position or text similarity: reorder preserves IDs, insertion creates one, split/merge retires replaced IDs and creates successors, and active coverage plus downstream refs are reconciled before delivery. |
+| SHT-01 | structural_invariant | 每个与制作有关的剧本 block 都有覆盖处置。 |
+| SHT-02 | reviewed_invariant | 每个镜头有戏剧/观看目的并保持来源含义。 |
+| SHT-03 | craft_default | 短镜头聚焦承载其目的的最小动作/反应单元；按表演、信息与连续性合并或拆分，而非按固定数量。 |
+| SHT-04 | craft_default | 因注意、压力、立场、揭示或节奏变化而改变景别/摄影机。 |
+| SHT-05 | structural_invariant | 关键帧投影一个已接受镜头边界与精确资产变体；绑定 proposed 播种记录的变体使关键帧保持 provisional、引用标 `authority:candidate`，直到接受。 |
+| SHT-06 | reviewed_invariant | 关键帧是一个可冻结的瞬间，不是有序动作链。 |
+| SHT-07 | taste_option | 镜头语汇、节奏与固定/手持/正式风格遵从视觉方向。 |
+| SHT-08 | reviewed_invariant | 每个权威来源动作只落实一次；重复覆盖增加反应/细节/语境重置，而非重放。 |
+| SHT-09 | reviewed_invariant | 精确的 Location/View 朝向与可见锚点同镜头所用机位侧一致。 |
+| SHT-10 | reviewed_invariant | 渲染的关键帧文字只包含该关键帧所声明边界的事实。首帧不携带由本镜运动或结尾才产生的状态；尾帧不携带在它之前已消耗的状态。两帧互不借用对方事实。 |
+| SHT-11 | craft_default | 信息改变他人的权力、关系、知识或选择时，可见地保留这一接收；镜头数、景别与时长服从后果与项目配置。 |
+| SHT-12 | reviewed_invariant | 每条观众可见性事实绑定精确来源、载体、权限、揭示时机与防泄露方式；构图既不提前泄露该事实，也不藏掉本镜必须交代的载体。 |
+| SHT-13 | reviewed_invariant | 多人调度把有来源、有指向的关系投影为当前边界下相容的位置、目光、距离与动作线。 |
+| SHT-14 | reviewed_invariant | 被争夺的运动物体在剪切间保持归属、轨迹、方向、时间/回合状态与终点位置，除非经授权的省略另有说明。 |
+| SHT-15 | reviewed_invariant | 创作者已声明交付面遮挡区及其持久性与来源时，镜头必须被读懂的内容——面部与目光、可读证据文字、决定性手部动作——不得只落在这些区域内，且镜头绑定已声明版本。未声明交付面时本条不生效：记为未决，不按猜测的区域重排。 |
+| SHT-16 | structural_invariant | 覆盖记录携带的单集时长总和等于其镜头已接受 `duration_seconds` 的算术和；覆盖列出的每个镜头要么贡献数值，要么列入 `unresolved_durations`，没有镜头静默漏出总和。项目声明单集目标时长时，记录绑定该字段并写明带符号差值；差值报告给创作者，本身从不阻断。 |
+| SHT-17 | structural_invariant | shot/keyframe ID 分别唯一；关键帧声明它冻结哪个边界，并绑定该镜头对应的边界字段。固定主线每镜恰有一张首关键帧；尾帧是 `end_boundary` 的投影，绝不是第二个终态权威，仅当交付流程消费时才加。shot 与 keyframe 的 asset/model/View/variant/fragment ID+hash fingerprint 及绑定顺序必须完全相同；存在 M2 Location 时，每镜恰有一个 Location generation 绑定，且与 `location_binding` 一致。交付首尾帧对等于把其间运动交给插值，镜头存在所系的动作不能单靠这段空缺。 |
+| SHT-18 | craft_default | 导演选择实质改变观众知识、立场、空间压力、表演所有权或落点的场次，可用已接受的场次视觉计划桥接项目方向与镜头；它绑定精确剧本 block、方向/形态、Location/View 与相关资产状态；普通场次跳过；它绝不拥有剧本事实或镜头边界。 |
+| SHT-19 | reviewed_invariant | 使用 coverage audition 时，各方案在知识时机、立场、表演空间、最强画面、落点、损失或制作相容性上真正不同；不使用固定方案数、宫格、景别或镜头数公式；在正式计划或镜头之前，一份独立的创作者接受记录绑定精确 audition hash 并点名一个已存在的入选方案。 |
+| SHT-20 | reviewed_invariant | 镜头修订身份遵循导演责任而非数组位置或文本相似度：重排保留 ID，插入创建新 ID，拆分/合并 retire 被替代 ID 并创建后继；交付前完成在用覆盖与全部下游引用的对账。 |
 
 ### `CON`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| CON-01 | structural_invariant | Linked end and next start states match or have an explicit owner revision. |
-| CON-02 | reviewed_invariant | Knowledge, injury, ownership, weather, light, or physical state does not teleport/regress without story cause. |
-| CON-03 | craft_default | Track downstream-relevant deltas, not the whole 设定集 in every shot. |
-| CON-04 | structural_invariant | A delta records before, after, cause/source, effective range, and affected bindings. |
-| CON-05 | taste_option | Declared montage, ellipsis, dream, or subjective imagery may intentionally break ordinary continuity. |
-| CON-06 | structural_invariant | A delta's affected refs cover all existing consumers; future consumers remain locators until materialized. |
+| CON-01 | structural_invariant | 相衔接的结束状态与下一开始状态一致，或有明确的负责人修订。 |
+| CON-02 | reviewed_invariant | 知识、伤势、归属、天气、光线或物理状态不得在没有剧情原因的情况下瞬移或倒退。 |
+| CON-03 | craft_default | 只跟踪与下游相关的变化，不把整本 设定集 复制到每一镜。 |
+| CON-04 | structural_invariant | 一条变化记录必须写明 before、after、原因/来源、有效范围与受影响绑定。 |
+| CON-05 | taste_option | 已声明的蒙太奇、省略、梦境或主观画面可以有意打破普通连续性。 |
+| CON-06 | structural_invariant | 一条变化的受影响引用覆盖全部现有消费方；未来消费方在落实前保持 locator。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

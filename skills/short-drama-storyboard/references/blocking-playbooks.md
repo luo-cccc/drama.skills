@@ -231,7 +231,7 @@ SHOT-03 就必须从“已经持有”继续。
 
 ## 7. 规则分级
 
-- `structural_invariant`：原文落实、产物引用、已接受绑定、起止边界和相邻关系都能解析。
+- `structural_invariant`：原文落实、产物引用、已接受绑定（或以 `authority:candidate` 临时绑定 proposed 播种记录且产物保持 provisional）、起止边界和相邻关系都能解析。
 - `reviewed_invariant`：切镜保留剧本原意，观察视角匹配摄影机一侧，证据有足够可读时间和接收反应。
 - `craft_default`：先建立地理、按注意变化切镜、在单房中用策略和物件制造运动；有理由时可以调整。
 - `taste_option`：镜头数量、景别、手持或固定、留白和反应方式由已接受的视觉方向决定。

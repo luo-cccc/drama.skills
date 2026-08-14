@@ -23,37 +23,68 @@
 ## Governing know-how
 
 - `REV-01` — Run mechanical integrity checks before spending attention on taste.
+- `REV-01a` — Every verdict binds the exact `.short-drama/review-bundles/*.json`
+  for its target set. The lifecycle tool re-hashes the bundle, checks exact
+  target equality, rejects mechanical issues, and re-runs applicable local
+  checkers; an arbitrary self-reported pass JSON is not structural evidence.
 - `REV-02` — Every finding names artifact/hash, bounded evidence, impact,
   required outcome, owner, severity, and status.
 - `REV-03` — A semantic-invention finding pairs the authoritative source fact
   with the conflicting downstream fact; suspicion alone is not evidence.
-- `REV-04` — Final approval requires a fresh reviewer context that did not author
-  the targets; self-check/unattested review stays provisional, and reviewers report
-  and route findings but do not edit owner source.
+- `REV-04` — Delivery-gate approval requires a fresh reviewer context that did
+  not author the targets; stage-gate approval may come from a cold_read review
+  (strict input diet in the current context) or a delta_verify closure against
+  a fresh or cold base verdict (REV-12); self-check/unattested review stays
+  provisional, and reviewers report and route findings but do not edit owner
+  source.
 - `REV-05` — Diagnose generic/repeated mechanisms at exact locations and explain
   audience or production impact instead of applying an “AI-ish” label.
 - `REV-06` — Alternative preferences remain non-blocking notes unless the
   current choice violates an accepted creator constraint.
 - `REV-07` — An end-to-end drafting request does not sign later artifacts;
   preview chains remain provisional, creator-pending, and delivery-blocked.
+- `REV-12` — A delta_verify re-review closes a base verdict's findings against
+  evidence inside the dispatched change scope; the base may be a fresh_agent or
+  cold_read verdict on the identical target set, it inherits its legitimacy
+  from that base, is never itself a fresh context, and escalates to a fresh
+  reviewer on out-of-scope change or at the delivery gate.
 
 ## Independence and target freeze
 
 The same context that authored an artifact may run a self-check, but it cannot
-issue final approval. A final reviewer starts from accepted artifacts, creator
+issue delivery-level approval. A reviewer starts from accepted artifacts, creator
 constraints, and hashes—not the author's explanation of why the output is good.
 
-When the host supports agents or isolated sessions, start a fresh reviewer and
-pass only the frozen artifact paths/hashes, accepted constraints, selected
-rubrics, and output schema. Do not pass the owner's intended fix, self-score, or
-an answer key. Record `requested_review_mode: independent_agent` and the actual
-`effective_review_mode`. A fresh reviewer records its runtime context ID and
-attests that it did not author any reviewed target. When isolation is unavailable,
-record `self_check` or `unattested`, keep `independent:false`, and issue only
-`PROVISIONAL`; changing a role label inside the same context is not independence.
+Review spends fresh contexts only where independence pays, in three modes:
+
+- **L1 fresh reviewer (independent agent/context)** — only for three events:
+  the first review of each artifact type in a project (the type baseline), the
+  delivery final gate, and after out-of-scope rewrites. Pass only the frozen
+  artifact paths/hashes, accepted constraints, selected rubrics, and output
+  schema. Do not pass the owner's intended fix, self-score, or an answer key.
+  One fresh reviewer session may cover several scopes of the same target set;
+  do not spawn one agent per scope. Record
+  `requested_review_mode: independent_agent` and the actual
+  `effective_review_mode`. A fresh reviewer records its runtime context ID and
+  attests that it did not author any reviewed target.
+- **L1.5 cold_read (current context, strict input diet)** — the default for
+  routine first reviews once a type baseline exists. Read only the
+  review-bundle evidence file, accepted constraints, selected rubrics, and the
+  output template; do not consult the authoring reasoning, self-checks, or
+  intended fixes. De-anchoring comes from input isolation, not role-play.
+  Record `requested_review_mode` / `effective_review_mode: cold_read`, reviewer
+  `kind: cold_reader`, `independent:false`, `provenance:null`. Cold_read
+  verdicts may approve for stage progression but never open the delivery gate.
+- **Self-check fallback** — when a fresh context cannot be started or the
+  input diet cannot be maintained, record `self_check` or `unattested`, keep
+  `independent:false`, and issue only `PROVISIONAL`; changing a role label
+  inside the same context is not independence.
+
 The deterministic project tool validates the attestation shape and bound bytes,
-not the truth of host runtime identity; it records that limited verification
-scope explicitly. Host orchestration remains responsible for actual isolation.
+not the truth of host runtime identity or diet compliance; it records that
+limited verification scope explicitly (`declared_provenance_structure` for
+fresh reviews, `cold_read_structure` for cold reads). Host orchestration
+remains responsible for actual isolation.
 
 Freeze the review set. If a file changes during review, mark affected findings
 stale and restart only the dependent scopes.
@@ -133,13 +164,33 @@ Synthesize duplicate findings and route by owner. A revision request includes
 target outcome, preserved facts, affected dependents, acceptance need, and review
 scope to rerun.
 
-On re-review:
+Revision-scope field names are layer-specific. Review findings and video-prompt
+revision proposals write `change_set` / `preserve_set`; when the target owner is
+image-prompts, those same two concepts land as the edit spec's `changes` /
+`preserve` (see image-prompts `edit-and-revision.md`). Same intent, different
+field names — rewrite at the handoff, do not mix both spellings in one document.
 
-1. verify the semantic diff addresses the finding;
-2. ensure preserved facts remain intact;
-3. reject stale prior approval;
-4. rerun exact structural and semantic dependents;
-5. close, supersede, or retain every finding explicitly.
+Routine re-review runs as **delta verification (L2)** in the current context —
+no fresh agent — provided a non-provisional base verdict (`fresh_agent` or
+`cold_read`) exists for the identical target set and the revision stayed inside
+the dispatched change scope:
+
+1. freeze the new hashes and confirm the target paths match the base verdict's
+   `reviewed_artifacts` exactly;
+2. verify the semantic diff addresses every base blocking finding;
+3. ensure preserved facts remain intact;
+4. reject stale prior approval;
+5. rerun exact structural and semantic dependents (REV-09);
+6. close, supersede, or retain every finding explicitly;
+7. confirm nothing outside the dispatched change scope or no new creative
+   content appeared — otherwise stop and escalate to a fresh (L1) reviewer.
+
+The delta verdict records `requested_review_mode` and `effective_review_mode`
+as `delta_verify`, binds its base in `delta_basis` (base review id, verdict ref
+and hash), and names the verifier as `kind: delta_verifier` with
+`independent:false`; approval legitimacy is inherited from that base (fresh or
+cold) plus the evidence-checked closure, never from the delta context itself.
+The delivery final gate always escalates to L1.
 
 ## Anti-template review
 

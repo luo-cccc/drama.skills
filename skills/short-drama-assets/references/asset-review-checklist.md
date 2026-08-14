@@ -18,8 +18,9 @@
   数据角色没有混写。
 - [ ] 每个 occurrence 的 decision 恰为 `reuse` / `new_variant` / `new_asset` /
   `unresolved`。
-- [ ] `new_variant` 有 base、differences、cause、valid_from、valid_until/open-ended。
-- [ ] ID 唯一；所有已接受 binding 精确解析到 Character+Look、Location+View 或
+- [ ] 每个 generation variant 有 `base_asset_id`、当前 `base_model_ref.record_id+record_hash`、changes、preserve 与 validity；基础模型变化时 variant 和 variant_delta 自动 stale。
+- [ ] 每个 View ID 全局唯一；每个 View 恰有一个 `view_projection`，每个 generation variant 恰有一个同时绑定 variant 与基础 model 的 `variant_delta`。
+- [ ] generation record ID 全局唯一；所有已接受 binding 精确解析到 Character+Look、Location+View 或
   Prop+State。
 - [ ] unresolved 没有伪造 accepted binding，不能流入 prompt/storyboard 编译。
 - [ ] 每条 delta 有 before、after、cause/source、effective range、affected bindings。

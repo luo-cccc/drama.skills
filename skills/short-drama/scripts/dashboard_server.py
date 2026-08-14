@@ -74,6 +74,14 @@ class DashboardError(Exception):
         self.message = message
 
 
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str | bytes | bytearray) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
 def _is_loopback(host: str) -> bool:
     if host.casefold() == "localhost":
         return True
@@ -105,7 +113,7 @@ def _validate_structured_text(path: PurePosixPath, content: str) -> None:
     suffix = path.suffix.casefold()
     if suffix == ".json":
         try:
-            json.loads(content)
+            _json_loads(content)
         except json.JSONDecodeError as exc:
             raise DashboardError(
                 HTTPStatus.BAD_REQUEST,
@@ -118,7 +126,7 @@ def _validate_structured_text(path: PurePosixPath, content: str) -> None:
         if not line.strip():
             continue
         try:
-            json.loads(line)
+            _json_loads(line)
         except json.JSONDecodeError as exc:
             raise DashboardError(
                 HTTPStatus.BAD_REQUEST,
@@ -247,7 +255,7 @@ class ProjectStore:
                     title = "未命名短剧"
                     try:
                         raw, _mode = self._read_regular_at(directory_fd, entry.name)
-                        manifest = json.loads(raw.decode("utf-8"))
+                        manifest = _json_loads(raw.decode("utf-8"))
                         candidate = manifest.get("title") if isinstance(manifest, dict) else None
                         if isinstance(candidate, str) and candidate.strip():
                             title = " ".join(candidate.split())[:200]
@@ -367,6 +375,7 @@ class ProjectStore:
         pure = PurePosixPath(raw)
         if (
             not raw
+            or not pure.parts
             or pure.is_absolute()
             or any(part in ("", ".", "..") for part in pure.parts)
         ):
@@ -833,7 +842,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def _json(
         self, status: int, value: Any, *, headers: dict[str, str] | None = None
     ) -> None:
-        body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+        body = json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode(
             "utf-8"
         )
         self.send_response(status)
@@ -1043,7 +1054,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                     "Content-Type must be application/json",
                 )
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload = _json_loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise DashboardError(
                     HTTPStatus.BAD_REQUEST, "request body must be an object"

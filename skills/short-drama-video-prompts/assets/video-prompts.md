@@ -6,6 +6,7 @@
 # EP<编号> · 视频提示词
 
 > 来源：`motion-specs.jsonl` 已接受快照 `<hash>`
+> 生成片段：`generation-clips.jsonl` 已接受快照 `<hash>`；每片不超过项目 `max_clip_seconds`
 > 配方：`motion-generic@<version>` · 当前文本 `<hash>`
 > 范围：仅提示词，不生成视频/音频，不调用媒体服务
 
@@ -16,6 +17,7 @@
 - **起始帧**：`KEY-<id>` @ `<hash>`
 - **参考图用途**：`<slot_id / order / reference>` 只决定 `<role / may_control>`；不得导入 `<must_not_control>`；检查状态 `<observation ref | unverified + risks>`；无附加参考则写“无”
 - **时长（只读）**：`<seconds>s`
+- **模型调用片段**：`<GCLIP-id 0.0–12.0s / GCLIP-id 12.0–24.0s / ...>`；片段边界不是剪辑边界
 - **边界核对**：`end match | mismatch | unrealized`
 - **声音引用**：`<dialogue/VO/OS/SFX ids>`
 - **注意**：<无法执行的风险 / 交给负责技能的修改请求；无则写“无”>

@@ -21,7 +21,7 @@
     "counted_shot_ids": ["SHOT-EXAMPLE"],
     "unresolved_durations": [],
     "target_ref": {
-      "owner": "short-drama",
+      "owner": "creator",
       "artifact": "short-drama.json",
       "hash": "<sha256>",
       "field": "/format/target_seconds_per_episode"

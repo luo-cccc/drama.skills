@@ -4,18 +4,24 @@
 
 1. Canonical DAG
 2. Single-owner registry
-3. Output language contract
-4. Stable identities
-5. Relationship fields without circular hashes
-6. Rule classes
+3. Stable identities
+4. Relationship fields without circular hashes
+5. Rule classes
+6. Filesystem and data identity
 7. Trust and privacy boundaries
 8. Recovery promises
+9. Output language contract
 
 ## Canonical DAG
 
 ```text
-development? -> screenplay.md -> screenplay-index.jsonl
-                                  -> asset occurrences -> decisions -> accepted 设定集
+source material -> source analysis -> development?
+visual direction -> asset scope -> generation/spatial/variant models -> view contracts
+                                           -> canonical fragments
+development? ------------------------------^       |
+                                                   v
+                                              screenplay.md -> screenplay-index.jsonl
+                                                   -> asset occurrences -> decisions -> accepted 设定集
                                                                /              \
                                                     image prompt specs        coverage
                                                            |                    |
@@ -41,28 +47,31 @@ no motion-to-shot or rendered-Markdown-to-spec authority edge.
 
 | Fact | Authority | Projection behavior |
 |---|---|---|
+| source chapter spans, extraction coverage, adaptation-value analysis and episode candidates | novel-analyze | analysis stays traceable to exact source bytes; develop may accept, reject or reshape candidates into an adaptation contract, but never treats them as creator decisions |
 | creator constraints, visual direction, production profile | creator fields in `short-drama.json` | all Skills reference exact accepted project hash/field; direct-entry projects do not rely on chat memory |
 | look-development frame composition and prompt projection | image-prompts project-level specs | binds accepted creator direction and source facts; style references cannot own identity, geography, or story state |
 | creator accept/reject decisions | creator `创作者决策/<artifact-id>.json` | lifecycle proof binds exact candidate targets and decision record/hash; `decided_by` names the creator or an authorized delegate, never a skill or agent |
 | series promise, engine, arc, planned episode contract | develop | episode-card points to the accepted map record/hash |
 | script-first standalone episode contract | write | active only when no develop-owned record exists; explicit authority migration if one is later adopted |
 | scene execution plan, beats, screenplay | write | may project but not duplicate a develop-owned contract |
+| episode generation asset allowance manifest | write `episode-card.json#generation_asset_bindings` | lists each actually consumed asset, its one model, allowed Views/variants, and exact canonical fragment set; acceptance binds every record hash and rejects duplicate or extra View/fragment declarations |
 | scene/action/dialogue/production directive | write `screenplay.md` | index maps spans and hashes |
 | voice record sheet | write `voice-record-sheet.jsonl` | line text projects the exact screenplay block and hash; per-shot audio realization stays with video-prompts and is referenced, not copied |
 | planned knowledge/goal/relationship/handoff state | develop episode contract | write points to accepted record while projection mode is active |
 | realized knowledge/belief/goal/relationship/emotion change | write screenplay/standalone contract | continuity ledgers carry source pointer, never a second value authority |
 | block ID, kind, span, hash | write indexer | points to screenplay snapshot |
 | character/location/prop identity and variants | assets | prompt/shot files reference exact ID+variant |
+| generation asset scope, asset/spatial/variant models, view contracts | assets | downstream binds exact record IDs and hashes; full/compact is creator accepted |
+| canonical prompt fragments and deterministic compiler | image-prompts | fragments bind generation records by `record_id` + `record_hash`; project style binds visual-direction and prompt-language JSON pointers; compiler verifies profile and per-asset model/variant/View correspondence before concatenating |
 | asset-state delta and scene/episode asset ledger | assets | story-state entries are read-only develop/write projections |
 | occurrence extraction | assets | points to source block/hash |
-| asset image composition/edit choices | image-prompts spec | rendered prompt is cached |
+| asset image composition/edit choices | image-prompts spec | rendered prompt and compilation manifest are deterministic caches；发布时逐源 hash、记录 ID 与编译正文核对 |
 | optional coverage audition and scene visual plan | storyboard | compares/records directing choices and scene visual/sound movement; only creator-selected accepted plans project into shots, never overwrite screenplay/assets or own shot boundaries |
 | coverage, shot purpose, duration, binding, start/end boundary | storyboard | keyframe/motion reference boundary |
-| keyframe focal point, composition, camera/lens, frozen staging | storyboard | rendered keyframe prompt is cached |
+| keyframe focal point, composition, camera/lens, frozen staging | storyboard | rendered keyframe prompt is cached；发布时核对当前 keyframe hash、ID 与编译正文 |
 | motion order, performance path, camera/audio realization | video-prompts | end report compares with shot out-state |
+| generation clip windows, model-call limit, execution mode and planned handoffs | video-prompts `generation-clips.jsonl` | every accepted shot is covered contiguously; clips do not change editorial shot boundaries；continuation consumes the previous clip's authorized output observation |
 | delivery container membership, order, and container duration | video-prompts `delivery-containers.jsonl` | member accepted durations are read-only storyboard projections carrying refs; container duration equals their sum; rendered container text is cached |
-| source analysis layer: chapter index, adaptation triage, story units, entity candidates, adaptation value, episode candidates | novel-analyze `项目开发/source-analysis/` | candidates only; develop turns accepted ones into the adaptation map and contract, and may overturn any of them |
-| voice casting sheet rendered from accepted voice direction | assets `设定集/voice-casting.md` | derived text, cached; timbre is carried by the bound reference recording, the identity stays in `characters.jsonl`, per-line delivery stays with write |
 | finding, verdict, revision request | review | evidence points to reviewed artifact/hash |
 | input-reference or generated-result production observation | creator or authorized observer in project-private evidence | exact project/prompt/spec/reference slots/config only; review may diagnose and route a bounded revision, never generalize it automatically |
 | lifecycle, transactions, snapshots | shared core | metadata and hashes only |
@@ -71,53 +80,29 @@ Shot boundary owns start/end position, pose, gaze, hands, held props, and visibl
 continuity. Keyframes project those facts; they never override them. Motion end is
 a comparison report, not a second end-state authority.
 
-## Output language contract
+The publish-time owner registry above enumerates only artifacts written through
+`publish`. Filenames are the single source of truth in each stage SKILL.md's
+owned-output list (the registry is transcribed from it); exit conditions live in
+`production-pipeline.md`'s pipeline 2.0 table. Review findings/verdicts (`审查/*`) and
+delivery packages (`交付/*`) are written by the `review` / `review-batch` /
+`package` commands rather than `publish`, so they are owner-constrained by those
+commands' own validation instead of the publish-time `_expected_path_owner` check.
 
-Two fields, deliberately separate:
+### Aspect ratio lives in three places
 
-| Field | Governs | Default |
-|---|---|---|
-| `short-drama.json#/language` | every artifact a creator reads: screenplay, briefs, review notes, status text, Dashboard | `zh-CN` |
-| `short-drama.json#/format/prompt_language` | prompt bodies handed to image and video generators | `en` |
-
-Both are validated for well-formedness at `init` and reported by `status`, so a
-skill reads them instead of assuming a default. Malformed tags are refused at
-`init` rather than at use: nothing downstream re-checks the value, so an
-unchecked tag would propagate into every artifact that claims to follow it.
-
-The split exists because the two audiences fail differently. A creator reading
-Chinese wants Chinese; most generators render English prompt text most
-reliably. Collapsing the fields would make "show me this in English" silently
-change what appears on screen, and "write this project in Korean" silently
-degrade every prompt.
-
-Three rules:
-
-- **Creator-facing text follows `language`.** No skill hardcodes a language for
-  content a creator reads. Where a creator states a different preference in
-  conversation, that preference wins for that exchange and does not rewrite the
-  project field.
-- **Prompt bodies follow `prompt_language`.** A creator may set it to the
-  project language; the suite does not silently override that choice, and does
-  not claim a quality result either way.
-- **Depicted language is neither of these.** What a character speaks and what
-  readable on-screen text says come from the accepted asset records and the
-  accepted text policy. Changing a description language never changes depicted
-  content.
-
-Which stage reads which field:
-
-| Stage | `language` | `prompt_language` |
-|---|---|---|
-| core routing, status, Dashboard | yes | reports it, does not consume it |
-| develop, write, assets | yes | no prompt body of its own |
-| image-prompts | previews, warnings, revision summaries | `prompt_text` and every copyable prompt body |
-| storyboard | shot purpose, boundary notes, creator-facing plans | rendered keyframe prompt body |
-| video-prompts | end reports and creator-facing summaries | shot prompt body |
-| review | findings, impact, revision requests | never authors a prompt body |
-
-Stable rule IDs, asset IDs and lifecycle keys are not prose and stay verbatim
-under both fields.
+The frame aspect ratio is carried by three independent facts that must change
+together: `short-drama.json#/format/aspect_ratio` (project config), the
+`composition` choice in the accepted creator decision record that selected the
+visual direction (see `creator-decision.example.jsonl` — `decision_kind:
+visual_direction`, `accepted_value.composition`), and the lifecycle evidence
+that the decision was accepted. They are deliberately not derived from one
+another: `creator_authority/visual_direction` only carries `status` (its
+`choices` key is `look_development`, not a composition field), so the ratio
+itself lives in the config and the decision record. Changing one and not the
+others leaves the config, the visual direction, and the lifecycle evidence
+disagreeing, and downstream stages read all three. When a ratio change is
+requested (for example 9:16 → 16:9), update the config and the decision record
+in the same round and re-accept.
 
 ## Stable identities
 
@@ -207,6 +192,26 @@ A diagnostic declares code, class, enforcer, default severity, and owner skill.
 Word counts, shot counts, emotional curves, action density, and patterns seen elsewhere
 are never structural invariants unless the creator explicitly chose that format.
 
+## Filesystem and data identity
+
+Project paths have one portable identity: normalized separators, Unicode NFC, then
+case folding. Two spellings with the same identity are not distinct artifacts, even
+when the current filesystem can store both. Publication, read sets, record bindings,
+target mappings, transaction manifests, recovery, selection and omission lists all
+reject such aliases before state is committed. This keeps a project movable across
+case-sensitive Linux, case-insensitive Windows, and normalization-sensitive macOS
+filesystems without silent replacement.
+
+JSON means RFC-compatible JSON throughout the suite. Python's permissive `NaN`,
+`Infinity`, and `-Infinity` extensions are rejected on input, and serializers use
+`allow_nan=False`. Numeric duration checks additionally require finite values, so a
+non-finite operand cannot make a sum or delta comparison silently evaluate clean.
+Unknown numeric values are represented by `null`, not a non-standard constant.
+
+`format.aspect_ratio` is a positive `WIDTH:HEIGHT` pair. Decimal forms such as
+`2.39:1` are valid; empty, slash-separated, zero or negative forms are not. `init`
+validates language tags and aspect ratio before creating the project tree.
+
 ## Trust and privacy boundaries
 
 Host-agent text inference is expected. Deterministic scripts make no outbound
@@ -229,6 +234,13 @@ internal schema field name enters released resources.
 Creator source files are never replaced by partial output. Multi-file publishing
 uses a write-ahead manifest, immutable prior/candidate snapshots, per-file
 compare-and-swap, commit marker, and read-before recovery.
+
+On POSIX, target creation, replacement and recovery deletion are anchored to a
+pinned project directory descriptor and traverse parents with `O_NOFOLLOW`. Candidate
+and recovery material are read through descriptors as well. On Windows, project file
+reads compare the pre-open path identity, opened handle identity and post-open path
+identity before trusting bytes. A detected path swap is a transaction conflict, not
+permission to continue through a symlink target.
 
 If live bytes are neither the expected prior nor candidate hash, preserve them as
 a conflict and block. Offer adopt, restore, or merge; never overwrite an unknown
@@ -255,9 +267,53 @@ require every accepted input hash and unique accepted provider to remain current
 dependency cycles, ambiguous providers, stale providers, and out-of-band upstream
 edits block.
 
+Pipeline 2.0 M2 acceptance additionally reads the episode card's explicit
+`generation_asset_bindings`. A file-level dependency is not evidence that every
+screenplay asset is covered: each declared asset must bind its own scope, model,
+Views, variants and required canonical fragments. M3 cannot introduce a new
+identity or variant after that gate; a `new_asset` or `new_variant` decision returns
+the project to M1.5 and requires a new M2 acceptance. M2 Views are an episode-level
+allowed set, while M4b owns the actual per-shot selection. Pipeline completion then
+reconciles M3's resolved model/variant choices, M4a board coverage, and the ordered
+asset/model/View/variant/canonical-fragment ID+hash fingerprints across M4b and M5.
+A changed fragment version or same-kind fragment reorder is a different binding even
+when the asset ID set is unchanged; file presence alone is never evidence of consumption.
+
 Before publication, every canonical-looking `ArtifactRef` in JSON/JSONL candidate
 outputs is reconciled with the transaction read/write set. A ref to another output
 in the same publication must carry that output's candidate hash; every other ref
 must match an exact declared input path/hash. Missing or mismatched dependencies
 fail before the WAL is written. Markdown dependencies cannot be inferred safely
 from prose and remain an explicit owner declaration.
+
+## Output language contract
+
+Two fields, deliberately separate:
+
+| Field | Governs | Default |
+|---|---|---|
+| `short-drama.json#/language` | every artifact a creator reads: screenplay, briefs, analysis, review notes, status text | `zh-CN` |
+| `short-drama.json#/format/prompt_language` | prompt bodies handed to image, video and voice generators | `en` |
+
+Both are validated for well-formedness (BCP 47 shape) at `init` and reported by
+`status`, so a skill reads them instead of assuming a default. Malformed tags are
+refused at `init` rather than at use: nothing downstream re-checks the value, so
+an unchecked tag would propagate into every artifact that claims to follow it.
+
+The shape check is deliberately loose — it validates form, not registry
+membership: a 2–8 character primary language tag with optional `-` subtags.
+Single-character private-use segments (`x-…`) and underscore/space spellings
+(`en_US`, `zh CN`) are refused; ordinary tags like `zh-CN` and `en` are
+unaffected. This is the same strictness `init` applies to both fields.
+
+The split exists because the two audiences fail differently. A creator reading
+Chinese wants Chinese; most generators render English prompt text most reliably.
+Collapsing the fields would make "show me this in English" silently change the
+language a generator is asked to render, and vice versa. Changing one field never
+changes the other; a skill that needs both reads both. A project created before
+`prompt_language` existed reports the default (`en`) rather than an absent value,
+matching what `init` would have chosen.
+Canonical fragment style inputs bind the two relevant JSON pointers separately,
+so changing delivery metadata does not invalidate visual prompts, while changing
+visual direction or `prompt_language` invalidates M1.5b and its actual consumers.
+Compiler section headings follow `prompt_language`; their semantic order is fixed.

@@ -56,8 +56,12 @@ class CheckError(ValueError):
     """The inputs cannot be checked at all, as opposed to failing a check."""
 
 
-def _reject_json_constant(value: str) -> None:
-    raise CheckError(f"non-finite JSON number is not allowed: {value}")
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
 
 
 def _finite_number(value: Any) -> float | None:
@@ -78,7 +82,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         if not stripped or stripped.startswith("#"):
             continue
         try:
-            record = json.loads(stripped, parse_constant=_reject_json_constant)
+            record = _json_loads(stripped)
         except json.JSONDecodeError as error:
             raise CheckError(f"{path.name} line {number} is not valid JSON: {error}") from error
         if not isinstance(record, dict):
@@ -263,11 +267,7 @@ def check(
             )
             continue
 
-        inverted = [
-            f"{start}-{end}"
-            for start, end in windows
-            if start < 0 or end < 0 or end < start
-        ]
+        inverted = [f"{start}-{end}" for start, end in windows if end < start]
         if inverted:
             findings.append(
                 _finding(
@@ -357,26 +357,9 @@ def check(
         # readings are legitimate and they differ whenever overlap is declared.
         # Matching either is a pass; insisting on one would make a correct plan
         # fail under the other spelling.
-        declared_number = _finite_number(declared_total)
-        if declared_total is not None and declared_number is None:
-            findings.append(
-                _finding(
-                    "VID_DECLARED_TOTAL_MISMATCH",
-                    motion_id,
-                    "timing_plan declared total must be a finite non-negative number",
-                )
-            )
-        elif declared_number is not None and declared_number < 0:
-            findings.append(
-                _finding(
-                    "VID_DECLARED_TOTAL_MISMATCH",
-                    motion_id,
-                    "timing_plan declared total must be a finite non-negative number",
-                    declared_seconds=declared_number,
-                )
-            )
-        elif declared_number is not None and not any(
-            abs(declared_number - candidate) <= TOLERANCE_SECONDS
+        finite_declared_total = _finite_number(declared_total)
+        if finite_declared_total is not None and not any(
+            abs(finite_declared_total - candidate) <= TOLERANCE_SECONDS
             for candidate in (covered, last_end)
         ):
             findings.append(
@@ -386,7 +369,7 @@ def check(
                     f"timing_plan declares {declared_total}s, which is neither the "
                     f"{round(covered, 6)}s its segments occupy nor their "
                     f"{round(last_end, 6)}s endpoint",
-                    declared_seconds=declared_number,
+                    declared_seconds=finite_declared_total,
                     covered_seconds=round(covered, 6),
                     endpoint_seconds=round(last_end, 6),
                 )
@@ -419,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
     except CheckError as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 2
-    print(json.dumps(result, ensure_ascii=True, sort_keys=True, allow_nan=False))
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False))
     return 0 if result["status"] == "pass" else 1
 
 

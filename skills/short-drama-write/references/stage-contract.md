@@ -7,31 +7,14 @@
 - [单集契约与题材边界](#单集契约与题材边界上游输入)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定）见 `references/runtime-preflight.md`，不在本文件重复。
 
 ## 所有权边界
 
@@ -40,8 +23,11 @@
 - **本阶段继承**：已接受的单集契约与已接受事实。开发环节拥有已规划契约时，本阶段只投影
   它、不复制它；没有开发环节记录时，本阶段可拥有独立单集契约，后续若引入开发记录须显式
   迁移权威。
-- **本阶段不越权**：不决定景别、机位与镜头时长，不建立或改写资产身份与变体，不指定提示词
-  构成。需要这些变化时发修订请求。
+- **生成资产输入**：固定主线记录级读取实际消费的资产范围、资产/空间模型、视图与标准片段；
+  它们约束身份与世界事实，但不进入剧本视觉说明。
+- **本阶段不越权**：不决定景别、机位、逐镜 View 与镜头时长，不建立或改写资产身份与变体，
+  不指定提示词构成。单集卡的 `view_ids` 只声明下游可用的已接受 View 集合；需要集合外 View
+  时发 M1.5/M2 修订请求。
 
 ## 单集契约与题材边界（上游输入）
 
@@ -85,19 +71,23 @@
 
 ### `SCR`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| SCR-01 | reviewed_invariant | Every scene has a current agenda, opposing force, directional turn, and exit state. |
-| SCR-02 | craft_default | Prefer choices and consequences over coincidence for major turns. |
-| SCR-03 | reviewed_invariant | Private thought is expressed through behavior, evidence, or deliberate VO/OS. |
-| SCR-04 | craft_default | Dialogue carries agenda, relationship, subtext, and a change—not only information. |
-| SCR-05 | structural_invariant | Existing production tags use supported, closed syntax and resolvable references. |
-| SCR-06 | taste_option | Silence, slang, interruption, narration, and sentence rhythm remain character/style choices. |
-| SCR-07 | reviewed_invariant | Story-critical text, VO/OS, SFX, transition, and continuity requirements are not left indistinguishable from ordinary prose. |
-| SCR-08 | craft_default | When abstract emotion obscures performance, translate it into character-specific behavior, object handling, distance, silence, or delivery. Dialogue turn length and tactic follow the scene agenda rather than a universal attack-defense cadence. |
-| SCR-09 | craft_default | Break a long speech with a visible action beat that changes the speaker's tactic, giving downstream a sourced cut point and the performance a breath; a speech with no internal turn is shortened rather than split. |
-| SCR-10 | reviewed_invariant | When the creator marks a beat's realization as replaceable under later pressure, the record separates the dramatic function from the current depiction and names a fallback depiction that delivers the same function: same person proven or changed, downstream payoff refs and next-episode entry state still satisfied, cost not erased, no new setup required. Deleting the beat is never a fallback. An unmarked beat leaves the rule inactive—the suite carries no platform standard, predicts no outcome, and pre-emptive sanding is the more expensive mistake. |
-| SCR-11 | craft_default | When sound carries story information, spatial pressure, off-screen presence, a deliberate silence, or a scene bridge, the screenplay identifies the necessary source/event and its dramatic target; it does not prescribe per-shot mixing, add decorative sound to every scene, or use music to replace performance. |
+| SCR-01 | reviewed_invariant | 每场有当前议程、对抗力量、方向性转向与退出状态。 |
+| SCR-02 | craft_default | 重大转向优先选择与后果，而非巧合。 |
+| SCR-03 | reviewed_invariant | 私密想法通过行为、证据或有意使用的 VO/OS 表达。 |
+| SCR-04 | craft_default | 对白承载议程、关系、潜台词与变化——不只是信息。 |
+| SCR-05 | structural_invariant | 已有生产标签使用受支持的封闭语法与可解析引用。 |
+| SCR-06 | taste_option | 沉默、俚语、打断、旁白与句式节奏保持人物/风格选择。 |
+| SCR-07 | reviewed_invariant | 故事关键文字、VO/OS、SFX、转场与连续性要求不得与普通行文无法区分。 |
+| SCR-08 | craft_default | 抽象情绪遮蔽表演时，转译为人物特有的行为、物件操作、距离、沉默或表达。对白轮次的长度与策略服从场景议程，而非通用的攻防节奏。 |
+| SCR-09 | craft_default | 用一个改变说话者策略的可见动作节拍断开长段台词，给下游一个有来源的切点、给表演一个气口；没有内部转向的长段台词应缩短而非拆分。 |
+| SCR-10 | reviewed_invariant | 创作者把某节拍的实现标记为后续可更换时，记录把戏剧功能与当前呈现分开，并点名一个交付相同功能的备选呈现：同一人被证明或改变、下游兑现引用与下集进入状态仍满足、代价不被抹除、不需要新铺垫。删除该节拍永远不是备选。未标记的节拍使本条不生效——套件不携带平台标准、不预测结果，提前磨平是更贵的错误。 |
+| SCR-11 | craft_default | 声音承担故事信息、空间压力、画外存在、有意留白或场景桥接时，剧本指明必要的声源/事件及其戏剧目标；不规定逐镜混音，不给每场加装饰声，也不用音乐替代表演。 |
+| SCR-12 | reviewed_invariant | 设定集 存在身份记录（含 proposed 播种）时，剧本在姓名、身份、地点与关键道具上与其一致；超出 设定集 的新元素标记为待播种交给资产负责人，不静默偏离。待播种绝不造成 candidate 生产死锁：剧本候选发布后，资产负责人从其精确 index 记录播种身份层；确认后按“身份播种 → 资产等级 → 模型/View → 标准片段 → 重发布并接受剧本”逐层接受，任何一方都不伪装成已经接受的上游。 |
+| SCR-13 | structural_invariant | 每次剧本修订都用 previous-index/previous-source 映射重建剧本索引；下游引用绑定索引记录 ID，绝不绑定剧本整文件。 |
+| SCR-14 | reviewed_invariant | EP n>1 时，单集契约携带从上集 outgoing 状态得出的 incoming 摘要——有连续性记录时绑定记录，否则绑定已接受的上集剧本与单集卡；冲突显式处理，不静默改写。 |
+| SCR-15 | structural_invariant | Pipeline 2.0 的 `episode-card.json` 必须包含逐资产 `generation_asset_bindings`，每项声明 asset、唯一 model、本集允许 View/variant 与恰好覆盖它们的 canonical fragment IDs；列表不得重复，不得夹带允许集合外的 View/variant 片段。所有记录必须解析到该剧本 artifact 的准确记录级输入与哈希，并覆盖本集实际消费资产。逐镜实际 View 由 M4b 从允许集合选择；视觉模型正文不复制进剧本。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

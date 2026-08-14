@@ -38,6 +38,21 @@ EXPECTED_TRUST_BOUNDARY = {
     "private_source_runtime_access": False,
 }
 OPENAI_INTERFACE_KEYS = {"display_name", "short_description", "default_prompt"}
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
+def text_sha256(data: bytes) -> str:
+    """Hash text content in the suite's canonical LF form."""
+
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
 # Editor, OS and tool artifacts that are never release content. The list is
 # deliberately closed: anything not named here stays visible to both the
 # manifest and this verifier, so an extra executable file is still reported and
@@ -51,12 +66,18 @@ EXECUTABLE_SUFFIXES = (
     ".py", ".sh", ".bash", ".zsh", ".fish", ".js", ".mjs", ".cjs",
     ".rb", ".pl", ".php", ".exe", ".dll", ".so", ".dylib", ".command",
 )
+TEXT_FILE_SUFFIXES = frozenset(
+    {".css", ".csv", ".html", ".js", ".json", ".jsonl", ".md", ".py", ".toml", ".tsv", ".txt", ".xml", ".yaml", ".yml"}
+)
 
 
-def text_sha256(data: bytes) -> str:
-    """Hash suite text in its canonical LF form."""
+def suite_file_sha256(path: Path) -> str:
+    """Hash known text files canonically and all other files byte-for-byte."""
 
-    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+    data = path.read_bytes()
+    if path.suffix.casefold() in TEXT_FILE_SUFFIXES:
+        return text_sha256(data)
+    return hashlib.sha256(data).hexdigest()
 
 
 def is_local_noise(parts: tuple[str, ...]) -> bool:
@@ -86,7 +107,7 @@ MAX_METADATA_LENGTH = 1024
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    document = json.loads(path.read_text(encoding="utf-8"))
+    document = _json_loads(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"expected JSON object: {path}")
     return document
@@ -140,7 +161,7 @@ def verify_skill_contract(skill: Path, expected_name: str) -> None:
             raise ValueError(f"{expected_name} frontmatter metadata has a non-JSON constant: {name}")
 
         try:
-            metadata_value = json.loads(
+            metadata_value = _json_loads(
                 frontmatter["metadata"], parse_constant=_reject_constant
             )
         except json.JSONDecodeError as error:
@@ -165,7 +186,7 @@ def verify_skill_contract(skill: Path, expected_name: str) -> None:
         match = re.fullmatch(r'  ([a-z_]+):\s+("(?:[^"\\]|\\.)*")', line)
         if match is None or match.group(1) in interface:
             raise ValueError(f"{expected_name} openai.yaml has unsupported metadata")
-        value = json.loads(match.group(2))
+        value = _json_loads(match.group(2))
         if not isinstance(value, str):
             raise ValueError(f"{expected_name} openai.yaml values must be strings")
         interface[match.group(1)] = value
@@ -236,8 +257,20 @@ def verify_suite(core: Path) -> dict[str, Any]:
         raise ValueError(f"unexpected suite files: {', '.join(unexpected)}")
     if missing:
         raise ValueError(f"missing manifest files: {', '.join(missing)}")
+
+    cache_stats: dict[str, Any] = {
+        # Security verification always hashes live bytes. The CLI flags remain
+        # accepted for compatibility, but metadata-only cache hits are never a
+        # trust source because size and mtime can be restored after mutation.
+        "enabled": False,
+        "mode": "full",
+        "hashed_files": 0,
+        "cached_files": 0,
+    }
     for relative, expected_hash in files.items():
-        actual_hash = text_sha256((skills_root / relative).read_bytes())
+        path = skills_root / relative
+        actual_hash = suite_file_sha256(path)
+        cache_stats["hashed_files"] += 1
         if actual_hash != expected_hash:
             raise ValueError(f"content hash mismatch: {relative}")
 
@@ -274,17 +307,37 @@ def verify_suite(core: Path) -> dict[str, Any]:
         "core_manifest_sha256": manifest_hash,
         "checked_skills": checked,
         "checked_files": len(files),
+        "verify_cache": cache_stats,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
+    positional: list[str] = []
+    for argument in list(argv) if argv is not None else []:
+        if argument in {"--full", "--no-cache"}:
+            # Backward-compatible no-ops: verification is always full.
+            continue
+        elif argument.startswith("-"):
+            print(f"ValueError: unknown option: {argument}", file=sys.stderr)
+            return 2
+        else:
+            positional.append(argument)
+    if len(positional) > 1:
+        print("ValueError: expected at most one core path", file=sys.stderr)
+        return 2
     core = (
-        Path(argv[0])
-        if argv
+        Path(positional[0])
+        if positional
         else Path(__file__).resolve().parents[1]
     )
     try:
-        print(json.dumps(verify_suite(core), ensure_ascii=False, sort_keys=True))
+        print(
+            json.dumps(
+                verify_suite(core),
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+        )
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)

@@ -4,6 +4,9 @@
 它不复制任何规则正文——每个技能的预检、所有权边界、形态输入与完整规则表，都在该技能
 自己的 `references/stage-contract.md` 里。核心不代子技能决定读哪一份资料。
 
+需要理解完整生产/消费关系时读 [workflow-dataflow.md](workflow-dataflow.md)；本页只负责
+把具体主题路由到 owner。
+
 ## 目录
 
 - [主题权威路由](#主题权威路由)
@@ -16,9 +19,10 @@
 
 | 主题 | 负责技能 | 何时读取 | 不适用边界 |
 |---|---|---|---|
-| 长篇原著切片与逐章功能提取 | `$short-drama-novel-analyze` | 导入小说、连载或多集散稿，需要可追溯的分析层 | 不写改编契约与分集地图，不建资产 |
-| 抽样快评一本书值不值得拆 | `$short-drama-novel-analyze` | 全量拆解前先按抽样判断改编密度与风险 | 结论限于抽样范围，不产候选集条目 |
-| 改编价值与分集候选 | `$short-drama-novel-analyze` | 判断哪些单元在屏幕上成立、按戏剧结果切候选集 | 候选不是决定；集数由创作者与 develop 定 |
+| 端到端流程、产物消费与失效传播 | `$short-drama` | 不清楚当前内容从哪里来、会被谁消费或修改后要重做哪些阶段 | 只解释跨阶段关系；具体创作规则仍归各 owner |
+| 长篇原著章节索引与逐章功能提取 | `$short-drama-novel-analyze` | 导入小说或连载，需要可追溯的分析层 | 不写改编契约、剧本或资产 |
+| 原著抽样快评 | `$short-drama-novel-analyze` | 全量拆解前判断改编密度、制作负担和风险 | 结论限于样本，不冒充全量结论 |
+| 改编价值与分集候选 | `$short-drama-novel-analyze` | 判断哪些单元能转成屏幕内容并形成候选集 | 候选不是决定；改编契约仍归 develop |
 | 故事承诺与冲突引擎 | `$short-drama-develop` | 从点子建立可持续压力与回报 | 不用题材词直接生成剧情 |
 | 单集契约与集尾交接 | `$short-drama-develop` | 规划进入状态、局部结果与出去压力 | 不代替剧本场景执行 |
 | 单集容量可行性 | `$short-drama-develop` | 进入场景化前估算各集镜头与时长量级 | 用项目自身比例，不设跨项目门槛，不阻断交付 |
@@ -35,7 +39,8 @@
 | 剧本生产标签 | `$short-drama-write` | 规范化对白、动作、VO/OS、文字与连续性 | 不借格式补造剧情 |
 | 资产出现证据 | `$short-drama-assets` | 从剧本拆角色、地点、道具与状态 | 不用名词/人名匹配直接建资产 |
 | 身份、变体与复用 | `$short-drama-assets` | 决定复用、新变体、新身份或未决 | 相机角度通常不是资产变体 |
-| 资产图片提示词 | `$short-drama-image-prompts` | 把已接受资产投影为单帧可见规格 | 不承载有先后顺序的剧情动作 |
+| 角色声音方向与音色 | `$short-drama-assets` | 跨集稳定声音身份：`voice_direction` 以参考音频为音色载体，文字承担选型判据与专名发音（AST-07） | 本场怎么说属于表演，留给 write 的配音本逐句决定；无参考音频时保持 `reference_ref: null` 待选型，不用文字冒充音色 |
+| 资产图片提示词 | `$short-drama-image-prompts` | 把已接受资产（或 `authority:candidate` 临时绑定的 proposed 播种记录）投影为单帧可见规格 | 不承载有先后顺序的剧情动作 |
 | 场景板光线与跨 View 一致 | `$short-drama-image-prompts` | 同一地点要拆多个观察方向、且这些板会被互相剪接 | 朝向造成的逆光/落影差异不需拉平 |
 | 图片提示词定点修改 | `$short-drama-image-prompts` | 修改局部并冻结 preserve set | 不把重写整图伪装成局部编辑 |
 | 镜头目的与覆盖 | `$short-drama-storyboard` | 从剧本建立有动机的镜头 | 不为景别多样性硬拆镜 |
@@ -44,6 +49,7 @@
 | 多人场面调度与交付面遮挡 | `$short-drama-storyboard` | 多人、群体、证据揭示、动态物体场面，或竖屏播放面会叠加遮挡 | 不把一个布局复用于所有题材；遮挡区来自已声明交付方案，不设通用安全框 |
 | 视频运动规格 | `$short-drama-video-prompts` | 把已接受镜头边界写成时间变化 | 不改镜头、资产或剧本权威 |
 | 交付容器与分段算术 | `$short-drama-video-prompts` | 项目声明了分段或多镜打包的交付方式 | 打包方式不改写镜头边界与可审查性 |
+| 模型调用 generation clip | `$short-drama-video-prompts` | accepted shot 超过或接近单次模型时长上限 | 片段完整覆盖原镜头，不把执行边界冒充剪辑边界 |
 | 交付路由与执行触发词 | `$short-drama-video-prompts` | 项目声明了逐镜以外的路由，或某路由要求固定字样 | 触发词与路由都由创作者档案声明，本套件不自造字样，续接不产生第二个起点权威 |
 | 表演动作与时长 | `$short-drama-video-prompts` | 动作、台词与落点可能超载 | 不用每秒动作数设通用阈值 |
 | 摄影机、声音与相连边界 | `$short-drama-video-prompts` | 写运镜、环境运动、口型或声音方向 | 不添加无来源的音乐/事件 |
@@ -76,3 +82,21 @@
 `SHT` 分镜与关键帧、`VID` 视频提示词、`CON` 连续性、`REV` 审查。ID 全套件唯一；
 条目正文由拥有该前缀的技能维护，核心不再复制一份。`CON` 由资产、分镜与视频提示词
 共同遵守，三方的 stage-contract 各自列出同一份条目。
+
+按规则 ID 反查负责技能与条目正文：
+
+| 前缀 | 负责技能 | 条目正文 |
+|---|---|---|
+| `NVA` | `$short-drama-novel-analyze` | `skills/short-drama-novel-analyze/references/stage-contract.md` |
+| `STY` | `$short-drama-develop` | `skills/short-drama-develop/references/stage-contract.md` |
+| `SCR` | `$short-drama-write` | `skills/short-drama-write/references/stage-contract.md` |
+| `AST` | `$short-drama-assets` | `skills/short-drama-assets/references/stage-contract.md` |
+| `IMG` | `$short-drama-image-prompts` | `skills/short-drama-image-prompts/references/stage-contract.md` |
+| `SHT` | `$short-drama-storyboard` | `skills/short-drama-storyboard/references/stage-contract.md` |
+| `VID` | `$short-drama-video-prompts` | `skills/short-drama-video-prompts/references/stage-contract.md` |
+| `CON` | 资产 / 分镜 / 视频提示词共同遵守 | 三方 stage-contract 中同一份条目 |
+| `REV` | `$short-drama-review` | `skills/short-drama-review/references/stage-contract.md` |
+
+注意：资产模板与示例中的 `DEV-01`、`FACT-01`、`SHOT-01`、`KEY-03` 等编号是
+**记录编号**（装置条款、事实表行、示例镜头、示例关键帧），不是规则 ID，不参与上表的
+全套件唯一性约束；引用规则时只使用上表九个前缀。

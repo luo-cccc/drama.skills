@@ -405,10 +405,6 @@ class CoverageTests(unittest.TestCase):
             self.assertTrue(result["complete"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OwnershipTests(unittest.TestCase):
     """The analysis layer proposes; only develop may write the contract."""
 
@@ -586,3 +582,21 @@ class HeadingLineTests(unittest.TestCase):
         index = build_from(f"{long_title}\n{prose()}\n\n第二章 标题\n{prose()}\n")
         self.assertEqual(index["chapter_count"], 2)
         self.assertEqual(index["long_heading_lines_skipped"], 0)
+
+
+class StrictJsonTests(unittest.TestCase):
+    def test_index_consumers_reject_non_finite_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            index = root / "index.json"
+            index.write_text('{"chapters":[],"value":NaN}', encoding="utf-8")
+            with self.assertRaises(json.JSONDecodeError):
+                novel_index.sample_chapters(index)
+
+    def test_serialization_rejects_non_finite_numbers(self) -> None:
+        with self.assertRaises(ValueError):
+            novel_index._json_dumps({"value": float("nan")})
+
+
+if __name__ == "__main__":
+    unittest.main()

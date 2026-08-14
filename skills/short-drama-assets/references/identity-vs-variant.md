@@ -116,9 +116,11 @@
 - `new_variant` 要说明基础身份中哪些内容不变。
 - `reuse` 要说明现有版本怎样覆盖本次事实。
 
-接受前的字段只能叫 `proposed_binding`。只有 `creator_acceptance.status=accepted`，而且
-对应的设定身份或版本已经发布后，发布事务才能生成 `accepted_binding`。下游只读取
-后者；不能因为一个 ID 看起来正式，就把提案当成已接受记录。
+记录内容始终使用 `proposed_binding`，不再生成第二份 `accepted_binding`，避免同一选择出现
+两个取值权威。候选阶段它只是提案；只有包含该记录的 artifact 精确快照在项目生命周期中
+达到 `creator_acceptance=accepted`，下游才可读取这份 `proposed_binding`。M3 门禁同时核对
+occurrence、asset kind、generation model 与显式 `generation_variant_id`，不能因为 ID 看起来
+正式就把未接受 artifact 中的提案当成有效绑定。
 
 **`reviewed_invariant` AST-04：** 审查者检查身份识别点与临时状态是否混写，不以
 “资产越少越好”作为评价标准。

@@ -7,28 +7,27 @@ license: MIT
 # 短剧分镜与冻结关键帧
 
 先守住故事内容，再安排原文落实、空间和镜头，最后写冻结关键帧。不在这里写随时间
-变化的运动提示词，也不改写剧本或资产事实。
-
-镜头目的、边界说明与场次视觉计划是创作者读的，跟随 `short-drama.json#/language`；
-关键帧的**可复制提示词正文**跟随 `#/format/prompt_language`（默认 `en`）。
-两个值都由 core `project_tool.py` 的 `status` 报出，不要各自猜默认值，也不要用
-其中一个推断另一个。ID、规则编号和字段名在两者之下都保持原样。
+变化的运动提示词，也不改写剧本或资产事实。中文项目使用中文镜头目的、边界说明和
+可复制提示词；ID 和字段名保持原样。
 
 ## 先定位套件
 
 从本技能目录读取 `suite-ref.json`，按其中相对 `core_manifest` 定位唯一同级主技能与
 套件清单；确认声明的 core、contract、recipe 和清单 hash 一致后再读写项目。
 随后执行 [阶段契约](references/stage-contract.md) 的运行时预检：先恢复事务、读取状态，再进入本阶段。
-该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；本技能不读取其他技能的文件。
+该文件同时给出本阶段的所有权边界、需要从制作形态取得哪些输入，以及本阶段规则表；除核心套件元数据与执行速查（`execution-quickstart.md`）外，本技能不读取其他技能的文件。
+例行命令速查见核心技能的 `references/execution-quickstart.md`；其余参考按需加载。
 
 ## 按需读取资料
 
 始终读取：
 
 - 状态为 `accepted` 的 `screenplay.md` 与 `screenplay-index.jsonl`；
-- 状态为 `accepted` 的资产、版本与相关连续性；
-- `short-drama.json#/creator_authority/visual_direction` 中状态为 `accepted` 的视觉方向；
-  若状态为 `unset`，就向创作者给出选择，不从对话记忆补造。
+- 状态为 `accepted` 的资产、版本与相关连续性；`proposed` 播种记录可按
+  `authority:candidate` 绑定，此时镜头与关键帧保持 `provisional`，
+  不得接受，也不得进入交付容器，直到绑定记录被接受；
+- `short-drama.json#/creator_authority/visual_direction` 与 `production_profile` 中状态均为
+  `accepted` 的视觉方向与制作形态；任一为 `unset`，就向创作者给出选择，不从对话记忆补造。
 
 设计原文落实、场面调度、摄影机和剪切时读
 [shot-craft.md](references/shot-craft.md)；只有写冻结帧时读
@@ -97,6 +96,15 @@ license: MIT
 
 绑定准确的场景及视角、人物及造型、道具及状态和剧本来源段落，并建立：
 
+每镜和关键帧同时绑定准确的 generation 模型、变体、View 与标准片段版本。
+`shots.jsonl#generation_asset_bindings` 是逐镜绑定权威，实际 `view_id` 必须来自 M2 允许集合；
+`keyframes.jsonl` 使用 `profile: keyframe` 的统一编译接口并投影完全相同的
+asset/model/View/variant/fragment ID+hash fingerprint 与绑定顺序，
+不在镜头或关键帧里重新概括完整外观。shot 中的 model/View/variant 使用准确 ArtifactRef，
+标准片段使用带 hash 的 `fragment_refs`；发布会自动把这些片段记录加入输入绑定。
+若 M2 声明了 Location，每镜恰有一个 Location generation 绑定，且 `location_binding` 的
+spatial model/View 必须与该绑定一致。
+
 - 位置、朝向、视线、屏幕运动方向与轴线；
 - 进出路线和不随镜头改变的场景锚点；
 - 双手与持物、伤势与服装、文字状态、光线方向；
@@ -123,13 +131,18 @@ license: MIT
 
 时长表示剪辑意图。只有明确的计时算术可以机械检查；一般的可拍性必须结合本镜内容判断。
 
-### 6. 默认每镜一个冻结关键帧
+### 6. 固定主线每镜一个首关键帧
 
 使用 [keyframe-template.jsonl](assets/keyframe-template.jsonl) 写结构化来源，发布为
 `剧集/<EP>/storyboard/keyframes.jsonl`；再用
 [keyframe-prompts.md](assets/keyframe-prompts.md) 渲染可复制的派生文本。结构化关键帧
 保存只属于单帧的选择；Markdown 不是第二份事实来源。
 
+先填写当前构图、边界、摄影和光线，再调用 `prompt_compile.py` 的 `keyframe` profile；
+`generic_prompt` 与 manifest 不得手写。Markdown 保持“固定资产基线 / 状态增量 / 当前任务 / 排除项”
+的语义顺序，章节标题跟随 `prompt_language`。
+
+固定主线要求每镜恰有一张 `boundary_role:start` 关键帧；尾帧仍按交付需要选配。
 把已接受镜头的开始边界和准确资产版本，落到一个可以同时存在的瞬间：焦点、构图、
 摄影机与镜头焦段、空间锚点、姿态、目光、双手与持物、表情、光线、排除项。
 
@@ -207,8 +220,12 @@ python3 <skill-dir>/scripts/storyboard_check.py 剧集/EP001/storyboard/coverage
 
 - `剧集/<EP>/storyboard/coverage.json`
 - `剧集/<EP>/storyboard/coverage-auditions/<SC>.jsonl`（仅关键场次需要比较方案时；每场独立接受，项目工作历史，
-  默认不进执行交付包；accepted 后打包时显式传 `--omit`，不会按文件名静默排除）
+  默认不进执行交付包；accepted 后打包时显式传 `--omit` 与创作者
+  `--omission-evidence`，不会按文件名静默排除）
 - `剧集/<EP>/storyboard/scene-visual-plans/<SC>.jsonl`（仅关键场次需要场次计划时；每场独立接受）
 - `剧集/<EP>/storyboard/shots.jsonl`
 - `剧集/<EP>/storyboard/keyframes.jsonl`
 - `剧集/<EP>/storyboard/keyframe-prompts.md`（仅派生文本）
+
+`keyframe-prompts.md` 发布时必须绑定当前 `keyframes.jsonl` hash，并逐记录保留 ID 与
+确定性编译正文；它不能以“仅派生”为由绕过来源一致性。

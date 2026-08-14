@@ -17,7 +17,7 @@ import os
 import re
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
@@ -56,6 +56,38 @@ EP_HEADING_RE = re.compile(
 )
 EPISODE_ID_RE = re.compile(r"^EP([0-9]{3}|[1-9][0-9]{3,})$")
 MAX_HEADING_LENGTH = 80
+WINDOWS_FORBIDDEN_PATH_CHARACTERS = frozenset('<>:"|?*')
+WINDOWS_RESERVED_PATH_STEMS = frozenset(
+    {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        *(f"com{number}" for number in range(1, 10)),
+        *(f"lpt{number}" for number in range(1, 10)),
+        "com¹",
+        "com²",
+        "com³",
+        "lpt¹",
+        "lpt²",
+        "lpt³",
+    }
+)
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(
+        f"non-finite JSON number is not allowed: {value}", value, 0
+    )
+
+
+def _json_loads(value: str | bytes | bytearray) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
+def _json_dumps(value: Any, **kwargs: Any) -> str:
+    kwargs.setdefault("allow_nan", False)
+    return json.dumps(value, **kwargs)
 
 
 def sha256(content: bytes) -> str:
@@ -114,16 +146,25 @@ def _episode_id(number: int) -> str:
 
 def _portable_source_ref(source: Path, source_ref: str | None) -> str:
     value = source_ref or source.name
-    candidate = Path(value)
+    candidate = PurePosixPath(value)
     if (
         not value
         or candidate.is_absolute()
-        or ".." in candidate.parts
+        or any(part in {"", ".", ".."} for part in candidate.parts)
         or "://" in value
         or "\\" in value
         or re.match(r"^[A-Za-z]:", value)
     ):
         raise ValueError("source_ref must be a portable project-relative path")
+    for part in candidate.parts:
+        stem = part.split(".", 1)[0].casefold()
+        if (
+            part.endswith((" ", "."))
+            or any(ord(character) < 32 or ord(character) == 127 for character in part)
+            or any(character in WINDOWS_FORBIDDEN_PATH_CHARACTERS for character in part)
+            or stem in WINDOWS_RESERVED_PATH_STEMS
+        ):
+            raise ValueError("source_ref must be a portable project-relative path")
     return candidate.as_posix()
 
 
@@ -372,7 +413,15 @@ def build_manual_index(
 
 
 def _json_bytes(document: Any) -> bytes:
-    return (json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    return (
+        _json_dumps(
+            document,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
@@ -394,7 +443,7 @@ def write_index(path: str | Path, document: dict[str, Any]) -> None:
 
 
 def _load_index(index_path: str | Path) -> dict[str, Any]:
-    document = json.loads(Path(index_path).read_text(encoding="utf-8"))
+    document = _json_loads(Path(index_path).read_text(encoding="utf-8"))
     if not isinstance(document, dict) or not isinstance(document.get("episodes"), list):
         raise ValueError("index must be a JSON object containing an episodes list")
     return document
@@ -503,7 +552,7 @@ def _read_jsonl(path: Path, *, absent_ok: bool = False) -> list[dict[str, Any]]:
         if not raw.strip():
             continue
         try:
-            record = json.loads(raw.decode("utf-8"))
+            record = _json_loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError(f"{path}: invalid JSONL line {line_number}: {error}") from error
         if not isinstance(record, dict):
@@ -693,12 +742,12 @@ def main(argv: list[str] | None = None) -> int:
             result: Any = {"output": str(args.out), "episode_count": document["episode_count"]}
             if document["problems"]:
                 result["problems"] = document["problems"]
-                print(json.dumps(result, sort_keys=True))
+                print(_json_dumps(result, ensure_ascii=True, sort_keys=True))
                 return 2
         elif args.command == "verify":
             result = verify_index(args.index, args.source)
             if not result["verified"]:
-                print(json.dumps(result, sort_keys=True), file=sys.stderr)
+                print(_json_dumps(result, ensure_ascii=True, sort_keys=True), file=sys.stderr)
                 return 1
         elif args.command == "slice":
             content = slice_episode(args.index, args.source, args.episode_id, args.out)
@@ -716,9 +765,9 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=args.batch_size,
             )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        print(json.dumps({"error": str(error)}), file=sys.stderr)
+        print(_json_dumps({"error": str(error)}, ensure_ascii=True), file=sys.stderr)
         return 1
-    print(json.dumps(result, sort_keys=True))
+    print(_json_dumps(result, ensure_ascii=True, sort_keys=True))
     return 0
 
 

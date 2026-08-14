@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -38,9 +39,17 @@ class CheckError(ValueError):
     """The inputs cannot be checked at all, as opposed to failing a check."""
 
 
+def _reject_json_constant(value: str) -> Any:
+    raise json.JSONDecodeError(f"non-finite JSON number is not allowed: {value}", value, 0)
+
+
+def _json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
+
+
 def _load_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return _json_loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise CheckError(f"unreadable JSON: {path}") from error
 
@@ -55,7 +64,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            record = json.loads(line)
+            record = _json_loads(line)
         except json.JSONDecodeError as error:
             raise CheckError(f"invalid JSONL at {path.name}:{number}") from error
         if not isinstance(record, dict):
@@ -78,7 +87,8 @@ def _duration_of(shot: dict[str, Any]) -> float | None:
     value = shot.get("duration_seconds")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    seconds = float(value)
+    return seconds if math.isfinite(seconds) else None
 
 
 def _covered_shot_ids(coverage: dict[str, Any]) -> list[str]:
@@ -186,6 +196,10 @@ def check_episode_duration(
         findings.append(
             _finding("SHT16_TOTAL_MISSING", "shot_seconds_total is not a number")
         )
+    elif not math.isfinite(float(stated)):
+        findings.append(
+            _finding("SHT16_TOTAL_MISSING", "shot_seconds_total must be finite")
+        )
     elif abs(float(stated) - total) > 1e-6:
         findings.append(
             _finding(
@@ -212,6 +226,8 @@ def check_episode_duration(
         findings.append(
             _finding("SHT16_DELTA_MISSING", "a declared target needs a signed delta")
         )
+    elif not math.isfinite(float(delta)):
+        findings.append(_finding("SHT16_DELTA_MISSING", "delta_seconds must be finite"))
     elif abs(float(delta) - expected) > 1e-6:
         findings.append(
             _finding(
@@ -307,6 +323,15 @@ def check_keyframe_boundaries(
             )
             continue
         seen[(shot_id, role)] = keyframe_id
+    for shot_id in sorted(shot_ids):
+        if (shot_id, "start") not in seen:
+            findings.append(
+                _finding(
+                    "SHT17_START_KEYFRAME_MISSING",
+                    "every fixed-pipeline shot needs exactly one start keyframe",
+                    shot_id=shot_id,
+                )
+            )
     return findings
 
 
@@ -321,7 +346,10 @@ def _declared_target(project: Path | None) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise CheckError("target_seconds_per_episode must be a number or null")
-    return float(value)
+    target = float(value)
+    if not math.isfinite(target) or target <= 0:
+        raise CheckError("target_seconds_per_episode must be a positive finite number")
+    return target
 
 
 def check(
@@ -371,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     except CheckError as error:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 2
-    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False))
     return 0 if result["status"] == "pass" else 1
 
 

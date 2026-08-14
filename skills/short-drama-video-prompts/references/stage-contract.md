@@ -8,35 +8,21 @@
 - [参考媒体与补拍](#参考媒体与补拍)
 - [本阶段规则](#本阶段规则)
 
-本文件是本技能的自包含契约：预检、所有权、形态输入与规则表都在这里，
-不需要读取其他技能的文件。
+本文件是本技能的所有权、形态输入与规则表；公共运行时预检见同一套件 core 的
+`references/runtime-preflight.md`，本文件只保留本阶段特有的预检补充，不逐份重复公共段落。
 
 ## 运行时预检
 
 进入本阶段前先完成这套轻量预检。它只检查安装完整性、项目事务状态和已记录的精确引用，
-不评价创作内容。
-
-1. **验证安装**：从本技能目录的 `suite-ref.json` 解析到逻辑安装路径中的 core，用当前
-   环境可用的 Python 3 解释器运行 core 的 `scripts/suite_verify.py`。验证器沿逻辑安装
-   路径逐一检查清单中的技能；混装、缺件、额外可执行文件或 hash 不一致时停止写入，
-   也不要退回源码检出目录“借用”通过验证的兄弟技能。
-2. **先恢复事务，再读状态**：定位项目根目录后，先运行 core 的 `scripts/project_tool.py`
-   的 `recover`，再运行 `status`。`recover` 可重复执行；它报告 blocked 时保持创作者文件
-   原样并先处理冲突，不要绕过 WAL、手改状态文件或假定上次写入成功。`status` 中的
-   accepted/candidate 指针和阻断项是本阶段工作的当前事实。
-3. **只通过公开生命周期写入**：负责人用 `publish` 原子发布候选，并给每个外部结构化引用
-   提供精确 input hash。上游接受引用不继承候选状态。创作者接受、独立审查与内容修订是
-   不同动作。每次修订后重新运行适用的结构校验，并让下游刷新旧 hash。打包是最终交付闸门，
-   不是接受或审查命令；仍有阻断项时不打包。
-4. **读共享 JSON/JSONL 时同时声明读了哪几条记录**：`设定集/*.jsonl` 与项目文件是全项目
-   共享输入，只按整文件 hash 绑定会让后续任何一次增补把此前引用过它的产物全部标为
-   `stale`。发布时对这类输入补 `--input-record <path>=<selector>`（JSONL 用记录 ID，
-   JSON 用 RFC 6901 指针，每条一次），此后只有被绑定的记录变化才会影响本产物。
-   Markdown 没有可机器校验的记录身份，仍按整文件绑定。
+不评价创作内容。公共预检（验证安装、恢复事务再读状态、只通过公开生命周期写入、读共享
+JSON/JSONL 时声明记录绑定，含剧本经 `screenplay-index.jsonl` 记录 ID 绑定）见
+`references/runtime-preflight.md`，不在本文件重复。
 
 ## 所有权边界
 
-- **本阶段拥有**：运动顺序、表演路径、摄影与声音的实现；交付容器的成员、顺序与容器时长。
+- **本阶段拥有**：运动顺序、表演路径、摄影与声音的实现；生成片段的模型调用窗口、续接交接与执行路由；交付容器的成员、顺序与容器时长。
+- **本阶段继承**：关键帧的 generation 模型/变体/View/标准片段绑定链；只增加连续性锁、
+  首尾边界、动作、表演、摄影和声音，并通过确定性编译。
   成员的已接受时长是分镜的只读投影，容器时长等于它们之和。
 - **本阶段继承**：镜头目的、起止边界、已接受时长、形态运动预算、逐字对白。
 - **本阶段不越权**：不回写镜头或资产权威；结束报告只用于比较，不是第二个终点取值权威。
@@ -47,6 +33,9 @@
 视觉风格不是贴在提示词前面的标签。创作者已接受的视觉方向与制作形态由项目层决定并传入，
 **本技能不加载形态卡，也不自行选择形态**；本节只说明本阶段需要形态回答什么、以及拿到
 答案后投影成哪些字段。
+
+若项目尚未定形态（`visual_direction` / `production_profile` 为 `unset`），且输入镜头或关键帧
+已在文本中编码形态，本阶段可继续，但产物保持 `provisional`、不声称已接受形态约束，直到形态确定。
 
 形态决定属于 `craft_default`：创作者说明理由即可覆盖。形态不能创造新的
 `structural_invariant`，也不能改写身份、地理、持物归属与可读文字政策。审查者不得单凭
@@ -80,39 +69,41 @@
 
 ### `VID`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| VID-01 | structural_invariant | Motion reads but cannot rewrite shot start/end/duration/dialogue and next-shot state. |
-| VID-02 | craft_default | Write start anchor, ordered subject motion, camera behavior, timing, and end report; add performance change and environment/audio only when this shot actually carries them. |
-| VID-03 | craft_default | When a reference frame carries appearance/composition, focus prose on change instead of repeating the 设定集. |
-| VID-04 | structural_invariant | Explicit segment timing sums exactly to its shot's accepted duration—neither exceeding it nor leaving an unallocated remainder. |
-| VID-05 | reviewed_invariant | Untimed action load must be feasible enough to preserve the intended performance and story change. |
-| VID-06 | structural_invariant | Locked and moving camera instructions cannot govern the same interval without an explicit transition. |
-| VID-07 | taste_option | Camera may be locked or moving; audio/lip-sync detail follows the chosen production profile. |
-| VID-08 | reviewed_invariant | Structured motion names this shot's exact subjects, actions, contacts, and results rather than reusable placeholders; when a performance path is present, it names only the actors and visible changes this shot actually carries. |
-| VID-09 | structural_invariant | Next-start is an existing canonical ref or an explicit provisional locator, never an invented record/hash. |
-| VID-10 | craft_default | Resolve one accepted production profile for the current delivery scope; local variants may coexist when their range and precedence are explicit, without overriding source coverage or exact-readable obligations. |
-| VID-11 | reviewed_invariant | A selective transform names its trigger, exact target scope, end geometry/state, and preserve set so non-target people, props, text surfaces, and spatial anchors do not change with it. |
-| VID-12 | reviewed_invariant | A pickup/alternate names stable master/supplement motion IDs and maps each source requirement to a field or disposition; motion may request replacement, but only a downstream independent verdict can bind fixed hashes and approve it. |
-| VID-13 | structural_invariant | A delivery container carries one or more accepted shots that are contiguous in source order, share one accepted geography/asset binding chain, and do not cross a scene boundary—a Location/View change ends the container. Its duration equals the sum of their accepted durations, and packing changes neither shot boundaries nor per-shot reviewability. |
-| VID-14 | craft_default | Music intent may be annotated per shot as a relative entry/exit/duck against neighbours, but its realization belongs to the timeline layer; no deliverable—single-shot or multi-shot container—carries a baked-in music bed unless the project accepted otherwise or the source is diegetic. Dialogue, off-screen sources, ambience, and event effects stay with the deliverable. |
-| VID-15 | structural_invariant | Within one episode a shot belongs to at most one container, so container durations sum without double-billing. Containers need not cover every shot, but the containers plus the shots left loose must account for the episode's shot set exactly once; an unaccounted or twice-counted shot is a defect, not a packing preference. |
-| VID-16 | reviewed_invariant | When performance changes, multi-character motion differentiates the actors who actually carry it and keeps each chosen signal readable in the accepted framing; it does not require an arc for non-performing shots, force every craft field, or duplicate one emotion across the cast. |
-| VID-17 | reviewed_invariant | Every multi-reference binding carries a stable `slot_id` and explicit unique `order`, so array reordering or insertion cannot silently change a reference's role; until a project validator owns this check, the reviewer cites conflicting slots/orders rather than claiming mechanical enforcement. |
-| VID-18 | reviewed_invariant | Per-shot text readiness is a scope-aware review/status projection derived from current accepted refs and real blocking gaps, not a persisted motion fact. A missing input blocks only dependent claims; overall delivery-ready requires all applicable scopes. Readiness never claims generated identity, performance, lip-sync, mix, edit, or market quality. |
-| VID-19 | reviewed_invariant | When the creator profile declares required literal tokens for a delivery route, that route's delivery text preserves them byte-for-byte and outside the verbatim-dialogue fence. Paraphrase, translation, reordering, or omission is treated as a defect because a literal-matching surface has no reason to reject the rewritten text—the failure is silent rather than reported. The suite asserts no specific surface's behaviour, and whether a given result took the route is returned adherence, provable only by a bound production observation. Tokens declare a route and never substitute for the start state, action, or endpoint. Absent a declared token list the suite invents none; until the profile exposes a machine-readable list at a pinned field path, the reviewer cites the profile against the delivery text rather than claiming mechanical enforcement. |
-| VID-20 | reviewed_invariant | Packing routes change delivery granularity only, leaving shot boundaries, shot purpose, and per-shot reviewability intact. A single long-form generation carrying several accepted shots *is* a multi-shot container and is billed under VID-13 and VID-15; it introduces no separate accounting and no exemption from the contiguity, binding-chain, and scene-boundary constraints. A continuation route instead starts from a previously generated result, which is observation evidence and not an accepted artifact: the accepted shot start boundary stays the sole authority, and any claim about the observed state binds a production observation record or remains `unverified`. |
+| VID-01 | structural_invariant | 运动规格只读、不得改写镜头的起点/终点/时长/对白与下一镜状态。 |
+| VID-02 | craft_default | 写起点锚定、有序主体动作、摄影机行为、时间与结束报告；仅当本镜确实承担时才加表演变化与环境/声音。 |
+| VID-03 | craft_default | 参考帧已承载外貌/构图时，文字聚焦变化，不重复 设定集。 |
+| VID-04 | structural_invariant | 显式分段时间之和正好等于镜头已接受时长——既不超出，也不留未分配余量。 |
+| VID-05 | reviewed_invariant | 未计时动作量必须可完成到足以保住预期的表演与故事变化。 |
+| VID-06 | structural_invariant | 固定与运动摄影机指令不得管辖同一时间区间，除非写明切换。 |
+| VID-07 | taste_option | 摄影机可固定可运动；声音/口型精度遵从所选制作形态。 |
+| VID-08 | reviewed_invariant | 结构化运动点名本镜精确的主体、动作、接触与结果，不用可复用占位符；存在表演路径时，只点名本镜确实承担的人物与可见变化。 |
+| VID-09 | structural_invariant | next-start 是已存在的 canonical 引用或显式 provisional locator，绝不是编造的 record/hash。 |
+| VID-10 | craft_default | 为当前交付范围解析一份已接受制作形态；局部变体可在范围与优先级明确时共存，不得覆盖原文覆盖义务或精确可读义务。 |
+| VID-11 | reviewed_invariant | 选择性变身写明触发、精确目标范围、结束几何/状态与保留集，使非目标人物、道具、文字面与空间锚点不随它变化。 |
+| VID-12 | reviewed_invariant | 补拍/替代版点名稳定的母版/补充运动 ID，并把每条来源要求映射到字段或处置；运动规格可以提出替代请求，但只有下游独立审查结论能绑定固定 hash 并批准。 |
+| VID-13 | structural_invariant | 交付容器承载一个或多个在来源顺序上连续、共享同一条已接受地理/资产绑定链、不跨场次边界的已接受镜头——Location/View 变化即结束容器。容器时长等于成员已接受时长之和；打包既不改变镜头边界，也不改变逐镜可审查性。 |
+| VID-14 | craft_default | 音乐意图可按镜标注为相对邻镜的进入/撤出/压低，其实现属于时间线层；任何交付物——单镜或多镜容器——都不携带烘焙好的音乐床，除非项目另有接受或声源是剧情内声源。对白、画外声源、环境声与事件音效留在交付物内。 |
+| VID-15 | structural_invariant | 同一集内一个镜头至多属于一个容器，容器时长加总不重复计账。容器不必覆盖全部镜头，但容器加散镜必须恰好一次覆盖全集镜头集合；漏算或重复计算的镜头是缺陷，不是打包偏好。 |
+| VID-16 | reviewed_invariant | 存在表演变化时，多人运动区分实际承担表演的人物，并让每个所选信号在已接受景别中可读；不要求非表演镜头写弧线，不强迫填满每个工艺字段，也不把同一情绪复制到全体。 |
+| VID-17 | reviewed_invariant | 每个多参考绑定携带稳定 `slot_id` 与显式唯一 `order`，数组重排或插入不得静默改变参考用途；在项目校验器接管此检查之前，审查者引用冲突的槽位/顺序，而不声称机械强制。 |
+| VID-18 | reviewed_invariant | 逐镜文本准备度是从当前已接受引用与真实阻断缺口派生的、按 scope 分别显示的审查/状态投影，不是持久化的运动事实。缺失输入只阻断依赖它的主张；整体 delivery-ready 要求全部适用 scope 就绪。准备度绝不声称生成后的身份、表演、口型、混音、剪辑或市场质量。 |
+| VID-19 | reviewed_invariant | 创作者档案为某交付路由声明必须原样保留的字样时，该路由的交付文本逐字节保留它们，且置于逐字台词围栏之外。改写、翻译、重排或遗漏按缺陷处理，因为逐字匹配的表面没有理由拒绝被改写的文本——失败是静默的而非报告的。套件不断言任何具体表面的行为；某次结果是否走了该路由属于返回遵守，只能由绑定的生产观察证明。字样只声明路由，绝不替代起点状态、动作或终点。没有已声明字样清单时套件不自造；在档案于固定字段路径暴露机器可读清单之前，审查者对照交付文本引用档案，而不声称机械强制。 |
+| VID-20 | reviewed_invariant | 打包路由只改变交付粒度，镜头边界、镜头目的与逐镜可审查性不变。承载若干已接受镜头的单次长生成就是多镜容器，按 VID-13 与 VID-15 记账；不引入单独账目，也不豁免连续性、绑定链与场次边界约束。续接路由则从先前生成的结果出发，而结果是观察证据、不是已接受产物：已接受镜头起始边界保持唯一权威，任何关于观察状态的主张绑定生产观察记录，否则保持 `unverified`。 |
+| VID-21 | structural_invariant | motion ID 唯一；固定主线每个已接受 shot 至少由一条 `profile: motion` 的 motion spec 消费，motion 的 asset/model/View/variant/fragment ID+hash fingerprint 及绑定顺序与 shot/keyframe 完全一致。视频阶段不得补建、替换或从 M2 允许集合中另选片段版本。 |
+| VID-22 | structural_invariant | 每个已接受 shot 必须由 `generation-clips.jsonl` 中连续、无重叠的模型调用窗口从 0 覆盖到 accepted duration；每个窗口不超过项目 `generation_limits.max_clip_seconds`，绑定同一 shot/motion。后续窗口的 planned boundary 必须完整携带姿态、位置、视线、双手持物和可见状态；`continuation` 还必须绑定与上一片段 `output_observation_ref` 相同的授权观察。片段不是新的剪辑边界。 |
 
 ### `CON`
 
-| ID | Class | Knowledge |
+| ID | 分级 | 规则 |
 |---|---|---|
-| CON-01 | structural_invariant | Linked end and next start states match or have an explicit owner revision. |
-| CON-02 | reviewed_invariant | Knowledge, injury, ownership, weather, light, or physical state does not teleport/regress without story cause. |
-| CON-03 | craft_default | Track downstream-relevant deltas, not the whole 设定集 in every shot. |
-| CON-04 | structural_invariant | A delta records before, after, cause/source, effective range, and affected bindings. |
-| CON-05 | taste_option | Declared montage, ellipsis, dream, or subjective imagery may intentionally break ordinary continuity. |
-| CON-06 | structural_invariant | A delta's affected refs cover all existing consumers; future consumers remain locators until materialized. |
+| CON-01 | structural_invariant | 相衔接的结束状态与下一开始状态一致，或有明确的负责人修订。 |
+| CON-02 | reviewed_invariant | 知识、伤势、归属、天气、光线或物理状态不得在没有剧情原因的情况下瞬移或倒退。 |
+| CON-03 | craft_default | 只跟踪与下游相关的变化，不把整本 设定集 复制到每一镜。 |
+| CON-04 | structural_invariant | 一条变化记录必须写明 before、after、原因/来源、有效范围与受影响绑定。 |
+| CON-05 | taste_option | 已声明的蒙太奇、省略、梦境或主观画面可以有意打破普通连续性。 |
+| CON-06 | structural_invariant | 一条变化的受影响引用覆盖全部现有消费方；未来消费方在落实前保持 locator。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

@@ -1,13 +1,17 @@
 {
-  "schema_version": "1.0.0-draft",
+  "schema_version": "1.3.1-draft",
   "project_id": "LOCAL-PROJECT-ID",
   "title": "未命名短剧",
   "language": "zh-CN",
   "format": {
     "aspect_ratio": "9:16",
-    "prompt_language": "en",
     "episode_count": null,
-    "target_seconds_per_episode": null
+    "target_seconds_per_episode": null,
+    "prompt_language": "en",
+    "generation_limits": {
+      "max_clip_seconds": 15,
+      "continuation_supported": false
+    }
   },
   "creator_authority": {
     "decisions_artifact": "创作者决策/",
@@ -28,6 +32,11 @@
       "overlay_regions": [],
       "source_ref": null
     }
+  },
+  "production_flow": {
+    "pipeline_version": "2.0.1",
+    "enforcement": "strict",
+    "allow_script_first": true
   },
   "current_checkpoint": null
 }
