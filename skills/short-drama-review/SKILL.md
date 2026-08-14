@@ -1,6 +1,6 @@
 ---
 name: short-drama-review
-description: 只读检查和独立审查短剧原著分析、开发、剧本、资产、连续性、图片提示词、分镜、关键帧和视频提示词，并输出带证据 findings、verdict 与修订要求。用户要求审稿、检查、诊断模板感或 AI 味、判断能否交付时使用；不修改来源正文，明确要求修改时将 findings 交回对应 owner。
+description: 仅在用户明确调用 $short-drama-review 时触发；未点名不得触发，且项目须含 short-drama.json。只读审查短剧开发、剧本、资产、连续性、分镜和提示词，输出带证据 findings 与 verdict。
 ---
 
 # 短剧审查
@@ -9,7 +9,7 @@ description: 只读检查和独立审查短剧原著分析、开发、剧本、�
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-review`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 先确定唯一 scope，再运行：
 
    ```text

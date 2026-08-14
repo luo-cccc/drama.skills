@@ -1,13 +1,13 @@
 ---
 name: short-drama-image-prompts
-description: 为已确认的短剧资产、视图、造型和状态建立标准提示片段、资产图片提示词与 Look Development 文本规格。用户要求角色设定图、三视图、场景板、道具图、状态变体、风格帧或修改图片提示词时使用；只输出结构化规格和确定性 Markdown，不生成图片或调用供应商接口。
+description: 仅在用户明确调用 $short-drama-image-prompts 时触发；未点名不得触发，且项目须含 short-drama.json。为已确认资产编写标准片段、图片提示词与 Look Development 规格；不生成图片。
 ---
 
 # 短剧图片提示词
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-image-prompts`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage image-prompts --episode EP001 --intent create|revise`。
 3. 先读任务胶囊，只读取实际消费的 asset/model/view/variant 和视觉方向。
 4. 参考媒体、形态或所有权异常时才读

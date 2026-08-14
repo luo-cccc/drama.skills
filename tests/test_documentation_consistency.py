@@ -82,6 +82,22 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertNotIn("来源与目标必须不同路径", quickstart)
         self.assertNotIn("约 35–40 分钟", quickstart)
 
+    def test_current_docs_require_explicit_skill_invocation(self) -> None:
+        creator_workflow = (
+            REPO_ROOT / "skills/short-drama/references/creator-workflow.md"
+        ).read_text(encoding="utf-8")
+        production_pipeline = (
+            REPO_ROOT / "skills/short-drama/references/production-pipeline.md"
+        ).read_text(encoding="utf-8")
+        core_skill = (REPO_ROOT / "skills/short-drama/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("用户显式调用对应 `$skill`", creator_workflow)
+        self.assertNotIn("明确的单项请求可以直入对应 owner", creator_workflow)
+        self.assertIn("只有在用户显式调用对应技能时才可执行", production_pipeline)
+        self.assertNotIn("仍可直接进入对应技能", production_pipeline)
+        self.assertIn("不得根据请求语义自动加载表中技能", core_skill)
+
     def test_each_top_level_reference_is_discoverable_from_its_skill(self) -> None:
         missing: list[str] = []
         for skill_dir in sorted((REPO_ROOT / "skills").glob("short-drama*")):

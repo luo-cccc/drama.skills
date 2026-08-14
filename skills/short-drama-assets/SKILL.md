@@ -1,13 +1,13 @@
 ---
 name: short-drama-assets
-description: 建立和维护短剧人物、生物、场景、道具、载具与效果的生成资产基线，并从剧本提取集内出现、复用决定、状态变化和连续性。用户要求资产基线、角色或场景设定、三视图契约、道具状态、复用判断或剧本资产拆解时使用；不写最终图片提示词，不生成媒体。
+description: 仅在用户明确调用 $short-drama-assets 时触发；未点名不得触发，且项目须含 short-drama.json。建立人物、场景、道具等资产基线，提取复用、状态与连续性；不写最终提示词，不生成媒体。
 ---
 
 # 短剧资产
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-assets`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 项目级 M1.5a 或单集 M3 分别运行
    `prepare <project> --stage assets [--episode EP001] --intent create|revise`。
 3. 先读任务胶囊，只打开列明的剧本块、既有身份和连续性记录。

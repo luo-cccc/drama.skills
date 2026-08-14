@@ -1,13 +1,13 @@
 ---
 name: short-drama-write
-description: 创建或修改中文短剧、漫剧的单集卡、因果节拍和可拍摄 Markdown 剧本，也将现成剧本做保留原意的生产格式规范化。仅在用户明确要求写作、续写、改场景、改对白或修改正文时使用；只检查、诊断模板感或 AI 味而不修改正文时使用 short-drama-review。
+description: 仅在用户明确调用 $short-drama-write 时触发；未点名不得触发，且项目须含 short-drama.json。创建或修改单集卡、因果节拍和可拍摄 Markdown 剧本；只检查不修改时不使用本技能。
 ---
 
 # 短剧写作
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-write`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage write --episode EP001 --intent create|revise`。
 3. 先读任务胶囊，只打开列明的单集契约、必要资产记录和当前剧本块。
 4. 所有权或契约缺失时才读 [stage-contract.md](references/stage-contract.md)。

@@ -16,6 +16,7 @@
 | 用户可见变更 | `docs/releases/release-notes.md` 与 README 的“最新更新” |
 | 文档入口与权威路由 | `docs/README.md`；发布套件内的数据流入口为 `workflow-dataflow.md` |
 | 模型侧技能上下文预算 | `tools/skill_perf_audit.py` 与 `tests/test_skill_perf_audit.py` |
+| 技能触发边界 | 各技能 `SKILL.md` frontmatter；未被用户显式调用时不得触发 |
 
 不要在文档中手写一份独立命令列表或版本表后让它自行漂移。参数以 `--help` 为准，
 版本由自动化测试核对，文件哈希由清单生成器维护。

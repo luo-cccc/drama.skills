@@ -8,7 +8,7 @@
 | 目标 | 先读 | 需要时再读 |
 |---|---|---|
 | 第一次了解套件 | [项目 README](../README.md) | [端到端工作流与数据流](../skills/short-drama/references/workflow-dataflow.md) |
-| 开始或继续一个项目 | [执行速查](../skills/short-drama/references/execution-quickstart.md) | [固定生产流程](../skills/short-drama/references/production-pipeline.md) |
+| 开始或继续一个项目（先显式调用技能） | [执行速查](../skills/short-drama/references/execution-quickstart.md) | [固定生产流程](../skills/short-drama/references/production-pipeline.md) |
 | 理解长篇、单集与 15 秒视频调用的关系 | [端到端工作流与数据流](../skills/short-drama/references/workflow-dataflow.md) | [固定生产流程](../skills/short-drama/references/production-pipeline.md) |
 | 查命令、接受、审查、打包 | [生命周期命令](../skills/short-drama/references/lifecycle-commands.md) | [创作者决定、预览与修订](../skills/short-drama/references/creator-workflow.md) |
 | 查谁拥有事实、谁能消费、何时 stale | [契约与所有权](../skills/short-drama/references/contract-and-ownership.md) | 各技能的 `references/stage-contract.md` |
@@ -32,6 +32,7 @@
 | 写前派生包、质量报告与连载义务校验 | `short-drama-write/references/writing-quality-loop.md`、`short-drama-develop/references/serial-obligation-ledger.md` |
 | 仓库验证、清单和发布纪律 | `docs/maintenance.md` |
 | 用户可见版本变化 | `docs/releases/release-notes.md` |
+| 技能触发边界 | 各技能 `SKILL.md` 的 frontmatter 与显式调用门禁 |
 
 当摘要与权威正文冲突时，以表中权威来源和工具实际校验结果为准；不要在多个入口文档
 各维护一份独立规则表。

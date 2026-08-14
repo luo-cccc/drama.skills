@@ -1,13 +1,13 @@
 ---
 name: short-drama-develop
-description: 将小说分析、点子、梗概、系列笔记或已有多集完整剧本发展为创作简报、故事引擎、导演阐述和分集地图。用户要求开发短剧、做系列大纲、分集规划、导演阐述，或从多集整稿生成分集地图时使用；单集正文修改直接使用 short-drama-write，制作形态由 short-drama 项目技能决定。
+description: 仅在用户明确调用 $short-drama-develop 时触发；未点名不得触发，且项目须含 short-drama.json。把小说、点子或多集剧本发展为创作简报、故事引擎、导演阐述和分集地图。
 ---
 
 # 短剧开发
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-develop`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage develop --intent create|revise`。
 3. 只读任务胶囊和其中列出的来源；需要所有权异常时才读
    [stage-contract.md](references/stage-contract.md)。

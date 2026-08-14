@@ -1,13 +1,13 @@
 ---
 name: short-drama-video-prompts
-description: 为已接受短剧镜头和关键帧编写逐镜运动规格、表演、运镜、声音、generation clip 与可选交付容器。用户要求视频提示词、图生视频动作、口型、环境运动、镜头时长或把分镜转成视频执行文本时使用；不生成视频，不调用供应商接口，不改变分镜边界。
+description: 仅在用户明确调用 $short-drama-video-prompts 时触发；未点名不得触发，且项目须含 short-drama.json。为已接受镜头编写运动、表演、运镜、声音、generation clip 与交付容器规格；不生成视频。
 ---
 
 # 短剧视频提示词
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-video-prompts`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage video-prompts --episode EP001 --intent create|revise`。
 3. 先读任务胶囊，只打开当前 shots、keyframes、声音引用和连续性边界。
 4. 参考媒体、容器或所有权异常时才读

@@ -24,7 +24,7 @@ artifact 范围；创作者可以撤销委托决定，委托人不能反向覆�
 
 ## 入口与里程碑
 
-按创作者实际任务路由，不要求为了形式补造上游文件：
+按创作者实际任务路由，不要求为了形式补造上游文件；每次都必须由用户显式调用对应 `$skill`：
 
 | 创作者任务 | Owner | 固定流程位置 |
 |---|---|---|
@@ -42,14 +42,14 @@ artifact 范围；创作者可以撤销委托决定，委托人不能反向覆�
 | 文本/JSON 交付包 | `short-drama` | M7 |
 
 固定主线是 `M0 → M1 → M1.5a → M1.5b → M2 → M3 → M4a → M4b → M5 → M6 → M7`。
-`script-first` 只跳过 M1。明确的单项请求可以直入对应 owner，但不会推进未完成的主线里程碑。
+`script-first` 只跳过 M1。用户显式调用对应 owner 后可以只产出单项，但不会推进未完成的主线里程碑。
 
 每个里程碑同时保留五个独立状态：build、structural validation、creator acceptance、
 independent review、delivery gate。任何一个 `accepted` 都不能代替其余四项。
 
 ## 任务执行
 
-1. 会话首次运行 core `preflight`，再用 `pipeline` 读取当前位置和阻断项。
+1. 用户显式调用 core 后运行 `preflight`，再用 `pipeline` 读取当前位置和阻断项。
 2. 对明确阶段运行 `prepare`，只读取任务胶囊列出的来源和按需参考。
 3. 只编辑胶囊的 `work_path`，运行 `finalize` 生成派生产物并执行机械校验。
 4. 需要形成生命周期 candidate 时显式使用 `finalize --publish --artifact-id <id>`。

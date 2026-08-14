@@ -1,13 +1,13 @@
 ---
 name: short-drama-storyboard
-description: 将已接受剧本和资产转换为原文落实表、镜头设计、连续性边界和冻结关键帧规格。用户要求拆分镜、镜头表、场次视觉计划、Coverage Audition、首帧或关键帧提示词，以及检查轴线、站位、视线和持物连续性时使用；不生成媒体，不改写剧情事实。
+description: 仅在用户明确调用 $short-drama-storyboard 时触发；未点名不得触发，且项目须含 short-drama.json。把已接受剧本和资产转换为原文落实表、镜头设计、连续性边界与冻结关键帧规格。
 ---
 
 # 分镜与关键帧
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-storyboard`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage storyboard --episode EP001 --intent create|revise`。
 3. 先读任务胶囊，只打开本集 screenplay blocks、实际资产绑定和连续性。
 4. 参考媒体、补拍关系或所有权异常时才读

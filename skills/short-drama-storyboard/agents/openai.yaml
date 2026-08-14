@@ -1,4 +1,4 @@
 interface:
   display_name: "短剧分镜"
   short_description: "把剧本与资产拆成完整coverage、有动机镜头和冻结关键帧"
-  default_prompt: "使用 $short-drama-storyboard 把已接受剧本和资产拆成有动机的镜头与冻结关键帧提示词。"
+  default_prompt: "仅响应对 $short-drama-storyboard 的明确调用；无 short-drama.json 时停止并提示用户调用 $short-drama 初始化。"

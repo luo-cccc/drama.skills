@@ -1,13 +1,13 @@
 ---
 name: short-drama-novel-analyze
-description: 将长篇小说、连载网文或大量散稿做只读、可追溯的章节索引、改编快评、逐章功能提取、剧情聚合、人物设定归并和分集候选。用户要求导入、拆解、分析原著，判断是否值得改短剧，或提供长篇文件路径时使用；不写剧本、不决定改编方案、不生成媒体。
+description: 仅在用户明确调用 $short-drama-novel-analyze 时触发；未点名不得触发，且项目须含 short-drama.json。只读分析长篇原著，生成章节索引、改编快评、剧情聚合和分集候选；不写剧本。
 ---
 
 # 长篇原著分析
 
 ## 快速入口
 
-1. 每个项目会话首次运行 core `preflight`；不要读取套件清单。
+1. 当前请求须明确调用 `$short-drama-novel-analyze`，否则停止。再查 `short-drama.json`；缺失时提示用户调用 `$short-drama` 初始化；否则 `preflight`，不要读取套件清单。
 2. 运行 `prepare <project> --stage novel-analyze --intent create`，先读任务胶囊。
 3. 只读用户提供的原著和胶囊列出的项目来源，不把整部长篇一次塞入上下文。
 4. 需要所有权或异常规则时才读 [stage-contract.md](references/stage-contract.md)。

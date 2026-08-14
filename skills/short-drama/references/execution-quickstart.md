@@ -8,6 +8,16 @@
 
 ## 入口（每次会话一次）
 
+先检查当前请求是否明确写出要使用的 `$short-drama*` 技能名：
+
+- 未点名时不触发技能，不读取项目，也不执行本页命令。
+- 明确调用 `$short-drama` 时才可初始化；不要在技能安装目录内创建项目，也不要自动调用
+  阶段子技能。
+- 明确调用子技能后再向上查找 `short-drama.json`；缺失时停止并提示用户调用
+  `$short-drama`，不能自动代为初始化。
+- 子技能仅在明确调用且 `short-drama.json`、`.short-drama/state.json` 都存在时执行下面的
+  `preflight`。
+
 ```text
 python3 <core>/scripts/project_tool.py preflight <project>
 ```
