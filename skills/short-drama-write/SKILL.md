@@ -27,7 +27,9 @@ license: MIT
 
 ### 1. 读取当前真相
 
-确认创作者约束、已接受的上游事实、本集进入状态和待兑现铺垫。若修订已有剧本，引用当前文件而不是凭对话记忆重写。本阶段拥有什么、继承什么见 [阶段契约](references/stage-contract.md)。
+确认创作者约束、已接受的上游事实、本集进入状态和待兑现铺垫。连续项目还要读取本集 `hook_operations`：把 `advance`/`resolve` 的 `evidence` 和 `action_effect` 落到可表演的行动与后果；`defer` 只能保留压力，不能伪写成已推进。若修订已有剧本，引用当前文件而不是凭对话记忆重写。本阶段拥有什么、继承什么见 [阶段契约](references/stage-contract.md)。
+
+新写、续写或大修时，读取 [写作质量闭环](references/writing-quality-loop.md)，先用 `writer_quality.py build-brief` 从地图记录或 `write_standalone` 单集卡、以及最多三份紧邻已接受剧本派生 `writer-brief.md`。它必须写在 `.short-drama/work/writer-briefs/`，是私有工作包，不能发布、接受或作为下游 artifact；执行其中已接受合同并避开近期同构，不把它当作另一个剧情 owner，也不把整套历史正文塞进上下文。首集或没有近期剧本时正常跳过差异段。
 
 固定主线必须记录实际消费的 generation 资产范围、资产或空间模型、视图与标准片段记录级输入。
 它们约束身份和世界事实，但不得把模型字段或视觉提示词塞进剧本正文。
@@ -143,6 +145,8 @@ source issue 的 refs 都保持 candidate；accepted 剧本发布后再以默认
 **每次修订剧本后必须重建 index**——下游（资产、图片提示词、分镜、视频提示词、审查）
 引用剧本一律绑定 `screenplay-index.jsonl` 的记录 ID，不直接绑定 `screenplay.md`
 整文件；未变 block 的记录 ID 与 hash 稳定，只有实际改动波及的记录会让下游标 `stale`。
+
+新写、续写或大修的剧本在索引后运行 `writer_quality.py check`，将 JSON 写到 `.short-drama/reports/writer-quality/<EP>.json` 并作为 `review-bundle --mechanical-report` 交给审查者。它的 findings 只定位合同无载体、义务无落点、近期动作复用与纯情绪提示；按 [写作质量闭环](references/writing-quality-loop.md) 定向修订相关场景/对白，保留已接受合同与不相关块，然后重建索引。不要把检查器当成审稿结论，也不要为消警而改变创作者有意的重复或作品节奏。
 
 ### 5b. 需要配音本时（可选）
 

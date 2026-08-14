@@ -80,6 +80,11 @@ What is reportable:
   cause, motive, or mechanism remains an unresolved inference (`STY-15`)?
 - Does active serial memory preserve character/relationship state, information
   permissions, setup debt, rhythm direction, and the exact physical handoff?
+- For each declared `hook_operations` entry, does the cited action or evidence actually
+  change a character's next choice, cost, or imminent consequence? A repeated mention is
+  not an advance; a resolve must answer the promised question and leave a current result.
+- Has the series opened a new hook even though an existing active obligation could already
+  generate the next conflict? Flag the new hook only when the map cannot explain that need.
 - Do external pressure and emotional load rise, fall, or diverge for a reason?
   A breathing scene should process a consequence rather than suspend the story.
 

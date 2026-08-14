@@ -80,8 +80,8 @@ python3 <core>/scripts/project_tool.py preflight <project>
 | 阶段 | 技能 | 产出 | 机械检查 |
 |---|---|---|---|
 | 原著分析（可选） | `short-drama-novel-analyze` | `项目开发/source-analysis/*` | `novel_index.py verify`、`sample`、`coverage` |
-| 开发 | `short-drama-develop` | `项目开发/creative-brief.md`、`story-engine.md`、`episode-map.jsonl` | — |
-| 写作 | `short-drama-write` | `剧集/EP001/episode-card.json`、`beats.jsonl`、`screenplay.md`、`screenplay-index.jsonl` | `screenplay_index.py`；有配音本时 `voice_sheet_check.py` |
+| 开发 | `short-drama-develop` | `项目开发/creative-brief.md`、`story-engine.md`、`episode-map.jsonl` | 连续项目运行 `episode_map_check.py --story-engine` |
+| 写作 | `short-drama-write` | `剧集/EP001/episode-card.json`、`beats.jsonl`、`screenplay.md`、`screenplay-index.jsonl` | `screenplay_index.py`；新写/续写/大修运行 `writer_quality.py`；有配音本时 `voice_sheet_check.py` |
 | 资产 | `short-drama-assets` | `设定集/*.jsonl`、`剧集/EP001/assets/*.jsonl` | — |
 | 图片提示词 | `short-drama-image-prompts` | `剧集/EP001/assets/image-prompt-specs.jsonl`、`image-prompts.md` | — |
 | 分镜 | `short-drama-storyboard` | `剧集/EP001/storyboard/coverage.json`、`shots.jsonl`、`keyframes.jsonl`、`keyframe-prompts.md` | `storyboard_check.py` |

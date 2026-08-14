@@ -77,6 +77,8 @@ license: MIT
 
 读取 [episode-design.md](references/episode-design.md)，再复制 [episode-map.jsonl](assets/episode-map.jsonl)。每一集记录进入状态、当集追求、阻力、因果升级、方向性转折、已兑现回报、出去的压力以及下一集必须继承的事实。
 
+连续项目、续写或存在跨集谜题时，同时读取 [连载叙事义务账本](references/serial-obligation-ledger.md)。在每集的 `hook_operations` 中只记录本集对活跃义务的实际操作：建立、推进、兑现或有理由地延期；不要把“提到过”误报成推进。发布地图前运行 `episode_map_check.py`，它只校验 ID、状态转移与必填证据，不替代创作判断。
+
 先保证每集产生局部戏剧结果、相邻集能精确交接，再讨论外部压力/情感负荷的双轨
 节奏。集数、钩子类型、是否反转和高潮位置由创作者与项目决定。
 
@@ -130,6 +132,8 @@ license: MIT
 - **分集契约、因果节拍、集间交接与地图修订**：[episode-design.md](references/episode-design.md)
 - **人物驱动力、前史与切入、跨集变化、信息权限、双轨节奏与恢复记忆**：
   [serial-character-and-memory.md](references/serial-character-and-memory.md)
+- **连续项目的伏笔生命周期、写前义务选择、兑现/延期判据与账本校验**：
+  [serial-obligation-ledger.md](references/serial-obligation-ledger.md)
 - **有原材料、需要压缩/合并人物场景/把信息视觉化**：
   [adaptation-craft.md](references/adaptation-craft.md)
 - **创作者提供对标作品、样例剧本或提示词，希望学习机制而非仿写表达**：

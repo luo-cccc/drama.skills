@@ -9,7 +9,7 @@
 | 内容 | 权威来源 |
 |---|---|
 | 套件、契约与 pipeline 版本 | `project_tool.py` 常量、`suite-manifest.json`、项目模板；三者由测试约束一致 |
-| 16 个项目命令及参数 | `python skills/short-drama/scripts/project_tool.py --help` |
+| 项目命令及参数 | `python skills/short-drama/scripts/project_tool.py --help` |
 | 技能文件集合与 SHA-256（文本规范化 LF，二进制按原始字节） | `skills/short-drama/suite-manifest.json` |
 | 子技能绑定的 core 清单 | 各子技能 `suite-ref.json` |
 | 测试矩阵 | `.github/workflows/suite.yml` |
@@ -22,7 +22,7 @@
 ## 修改边界
 
 - `skills/**` 是发布套件内容。修改其中任何脚本、文档、模板或示例后，都必须重建清单。
-- `tests/**`、`tools/**`、`docs/**` 和 `.github/**` 是仓库级维护内容，不进入 181 文件的发布套件清单。
+- `tests/**`、`tools/**`、`docs/**` 和 `.github/**` 是仓库级维护内容，不进入发布套件清单。
 - 不提交 `__pycache__/`、`*.pyc`、`.ruff_cache/`、`.DS_Store` 或 `.zcode/`。
 - 不手改 `suite-manifest.json` 或 `suite-ref.json` 中的哈希；统一运行生成器。
 
@@ -50,8 +50,8 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 ```
 
-当前 Python 测试共 196 项。Windows 按设计跳过 6 项依赖 POSIX 安全目录描述符的
-`ProjectStore` 用例；真实 HTTP handler、会话、Cookie、Host/Origin、安全响应头和 PUT
+测试数量随功能演进，不在维护文档中手工维护；以 CI 与 `unittest discover` 输出为准。Windows
+按设计跳过依赖 POSIX 安全目录描述符的 `ProjectStore` 用例；真实 HTTP handler、会话、Cookie、Host/Origin、安全响应头和 PUT
 路由测试仍会在 Windows 执行。前端测试使用 Node 标准库，无 npm 依赖。
 
 ## 安全回归范围
@@ -82,7 +82,7 @@ python tools/update_suite_manifest.py
 python skills/short-drama/scripts/suite_verify.py --no-cache
 ```
 
-生成器重算 9 个技能的 182 个文件，写回 core 清单并同步 8 个子技能引用。它是幂等的：
+生成器重算全部发布技能文件，写回 core 清单并同步子技能引用。它是幂等的：
 没有技能文件变化时，清单 hash 不应变化。
 
 版本升级时同步检查：
@@ -103,6 +103,6 @@ Node 20 前端检查及套件全量哈希验证；独立 lint job 使用固定�
 
 1. 全部本地验证命令通过。
 2. 新行为有回归测试，用户可见变化已写入发布说明。
-3. 文档中的相对链接可解析，命令数仍为 16。
+3. 文档中的相对链接可解析，项目命令说明与 `project_tool.py --help` 一致。
 4. 清单已在最后一次 `skills/**` 修改之后生成。
 5. 工作区不包含应忽略的生成缓存或临时项目产物。

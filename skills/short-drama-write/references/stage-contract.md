@@ -46,6 +46,7 @@ JSON/JSONL 时声明记录绑定）见 `references/runtime-preflight.md`，不�
 | 当集兑现 | 集尾钩子之前必须落地的局部结果 | 同上 |
 | 出去的压力与交接事实 | 末场留下什么、下一集要继承什么 | 同上 |
 | 信息权限 | 谁知道什么、观众知道什么 | 同上 |
+| 连载义务操作（存在时） | 将建立、推进、兑现或延期落实为可表演证据与状态后果 | 同上；不在剧本层私自新建或重置义务 |
 
 本阶段只把这些字段**落实成可表演的场景**：补场景发动机、节拍顺序、对白策略与生产标签。
 不得在剧本里改写契约字段——需要改就发修订请求，不在执行层偷改。
@@ -88,6 +89,7 @@ JSON/JSONL 时声明记录绑定）见 `references/runtime-preflight.md`，不�
 | SCR-13 | structural_invariant | 每次剧本修订都用 previous-index/previous-source 映射重建剧本索引；下游引用绑定索引记录 ID，绝不绑定剧本整文件。 |
 | SCR-14 | reviewed_invariant | EP n>1 时，单集契约携带从上集 outgoing 状态得出的 incoming 摘要——有连续性记录时绑定记录，否则绑定已接受的上集剧本与单集卡；冲突显式处理，不静默改写。 |
 | SCR-15 | structural_invariant | Pipeline 2.0 的 `episode-card.json` 必须包含逐资产 `generation_asset_bindings`，每项声明 asset、唯一 model、本集允许 View/variant 与恰好覆盖它们的 canonical fragment IDs；列表不得重复，不得夹带允许集合外的 View/variant 片段。所有记录必须解析到该剧本 artifact 的准确记录级输入与哈希，并覆盖本集实际消费资产。逐镜实际 View 由 M4b 从允许集合选择；视觉模型正文不复制进剧本。 |
+| SCR-16 | reviewed_invariant | 上游声明 `hook_operations` 时，剧本中 `advance`/`resolve` 的可见载体要使人物承担已声明的行动后果；`defer` 不得被写成已经回答或已经改变局面的推进。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

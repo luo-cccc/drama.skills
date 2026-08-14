@@ -31,6 +31,9 @@
   执行链摘要。pipeline 升至 2.0.1，套件升至 0.5.1，契约升至 `1.3.1-draft`。
 - 文档按入口、流程、数据流、命令、契约和维护重新分层；新增长篇输入到交付、结构化权威到
   派生 Markdown、长 shot 到 15 秒 generation clip 的端到端消费说明。
+- 写作阶段新增私有写前包与可持久化质量报告：连续项目从已接受的分集地图读取合同与近期剧本，
+  `write_standalone` 从单集卡读取；报告随 `review-bundle` 交给独立审查。连续地图同时可用
+  故事引擎的 Hook 账本核对稳定 ID、兑现计划与终态，避免地图和账本分别漂移。
 
 完整记录见 [发布说明](docs/releases/release-notes.md)。
 
@@ -40,8 +43,8 @@
 |---|---|
 | `short-drama` | 主路由：项目初始化 / 恢复 / 状态 / 交付打包、本地创作台 Dashboard、制作形态与视觉方向决定、生命周期工具（`project_tool.py`） |
 | `short-drama-novel-analyze` | 长篇原著分析：章节索引、抽样改编快评、逐章功能提取、剧情单元、改编价值与分集候选 |
-| `short-drama-develop` | 把小说、想法或梗概发展成改编方案、故事引擎、导演阐述与分集地图 |
-| `short-drama-write` | 编剧：单集契约、因果节拍、可拍摄 Markdown 剧本、剧本索引与配音本 |
+| `short-drama-develop` | 把小说、想法或梗概发展成改编方案、故事引擎、导演阐述、分集地图与连载义务账本 |
+| `short-drama-write` | 编剧：单集契约、因果节拍、私有写前包、可拍摄 Markdown 剧本、质量检查、剧本索引与配音本 |
 | `short-drama-assets` | 生成资产基线：人物/生物/场景/道具/载具/效果模型、空间拓扑与视图；单集增量和连续性 |
 | `short-drama-image-prompts` | 标准提示片段、确定性提示编译器、资产图片提示词与 Look Development 文本规格 |
 | `short-drama-storyboard` | 原文覆盖、镜头设计、连续性边界与冻结关键帧提示词 |
@@ -59,7 +62,7 @@ video.skills/
 │   ├── short-drama/              # 主技能（core）
 │   │   ├── SKILL.md
 │   │   ├── suite-manifest.json   # 套件清单：全部文件的 SHA-256
-│   │   ├── scripts/              # project_tool.py（16 个项目命令）/ suite_verify.py / dashboard_server.py
+│   │   ├── scripts/              # project_tool.py / suite_verify.py / dashboard_server.py
 │   │   ├── references/           # 执行速查、固定生产流程、批量生产、生命周期命令等
 │   │   └── assets/
 │   ├── short-drama-novel-analyze/
@@ -75,7 +78,7 @@ video.skills/
 │   ├── short-drama-storyboard/
 │   ├── short-drama-video-prompts/
 │   └── short-drama-review/
-├── tests/                        # 196 项 Python 测试 + Dashboard Node 测试
+├── tests/                        # Python 回归测试 + Dashboard Node 测试
 ├── docs/                         # 文档导航、发布说明与仓库维护手册
 ├── .github/workflows/suite.yml   # CI：三平台 × Python 3.10/3.14，含固定 Ruff 与 Node 20
 └── tools/
@@ -122,7 +125,7 @@ cp -r skills/short-drama* <project>/.agents/skills/
 python3 skills/short-drama/scripts/suite_verify.py
 ```
 
-通过时输出 9 个技能、182 个文件的校验摘要；hash 不一致、缺件或混入额外
+通过时输出已校验技能和文件的摘要；hash 不一致、缺件或混入额外
 可执行文件时会失败并拒绝写入项目。
 
 校验器每次都重算全部文件的 SHA-256；文本先规范化为 LF，二进制按原始字节计算，因此
@@ -139,7 +142,7 @@ preflight <project>` 在一次解释器运行内完成套件校验、事务恢�
 python3 tools/update_suite_manifest.py
 ```
 
-它重算 9 个技能全部文件的 SHA-256，写回 `suite-manifest.json` 并同步 8 个子技能的
+它重算全部发布技能文件的 SHA-256，写回 `suite-manifest.json` 并同步子技能的
 `suite-ref.json`；噪声规则与 `suite_verify.py` 保持一致，未改动时输出与当前清单
 完全相同的 hash（幂等）。
 
@@ -149,8 +152,8 @@ python3 tools/update_suite_manifest.py
 
 ## 测试与持续集成
 
-仓库自带 stdlib-only Python 测试套件，当前共 196 项；Dashboard 前端另有一组无 npm
-依赖的 Node 测试。Windows 上 6 个 Dashboard POSIX-dirfd `ProjectStore` 用例按设计跳过，
+仓库自带 stdlib-only Python 测试套件；Dashboard 前端另有一组无 npm
+依赖的 Node 测试。Windows 上部分 Dashboard POSIX-dirfd `ProjectStore` 用例按设计跳过，
 真实 HTTP handler 测试仍在 Windows 执行：
 
 - **一致性测试**（`test_noise_consistency.py`）：噪声集一致性、清单与磁盘内容一致性、
