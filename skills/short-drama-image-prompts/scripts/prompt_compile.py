@@ -93,6 +93,34 @@ def load_fragments(path: Path) -> dict[str, dict[str, Any]]:
     return fragments
 
 
+def render_fragment_library(path: Path) -> str:
+    """Render the canonical Markdown projection for one fragment JSONL file."""
+
+    source = path.read_bytes()
+    fragments = load_fragments(path)
+    lines = [
+        "# Canonical Prompt Library",
+        "",
+        f"Source SHA-256: `{hashlib.sha256(source).hexdigest()}`",
+    ]
+    for fragment_id, record in fragments.items():
+        text = record.get("text")
+        digest = record.get("fragment_hash")
+        if not isinstance(text, str) or not text.strip():
+            raise CompileError(f"fragment text is missing: {fragment_id}")
+        lines.extend(
+            [
+                "",
+                f"## {fragment_id}",
+                "",
+                f"Fragment hash: `{digest}`",
+                "",
+                *(f"> {line}" if line else ">" for line in text.splitlines()),
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _strings(value: Any, *, label: str) -> list[str]:
     if value is None:
         return []
@@ -370,13 +398,32 @@ def _records(path: Path) -> list[dict[str, Any]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path)
+    parser.add_argument("input", type=Path, nargs="?")
     parser.add_argument("--fragments", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--render-library",
+        action="store_true",
+        help="render canonical-prompt-library.md from --fragments",
+    )
     parser.add_argument("--expected-profile", choices=sorted(PROFILE_ORDER))
     args = parser.parse_args(argv)
     try:
+        if args.render_library:
+            if args.input is not None or args.check or args.expected_profile:
+                raise CompileError(
+                    "--render-library only accepts --fragments and optional --output"
+                )
+            text = render_fragment_library(args.fragments)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(text, encoding="utf-8")
+            else:
+                sys.stdout.write(text)
+            return 0
+        if args.input is None:
+            raise CompileError("input is required unless --render-library is used")
         fragments = load_fragments(args.fragments)
         records = _records(args.input)
         if args.check:

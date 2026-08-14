@@ -5,5 +5,5 @@
   "core_skill": "short-drama",
   "core_manifest": "../short-drama/suite-manifest.json",
   "recipe_version": "1.1.0-draft",
-  "core_manifest_sha256": "685bca9eda3a4cabdd093dca74d483d0305c2325040664f0bb85a768a6d630f4"
+  "core_manifest_sha256": "e2b851a63b5064971e831b5d67c767389647c185aa8d1c7a211fa27284529f90"
 }

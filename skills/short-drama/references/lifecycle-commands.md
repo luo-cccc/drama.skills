@@ -158,10 +158,13 @@ python3 <core>/scripts/project_tool.py accept-batch <project>
 （candidate targets 一致、目标 hash 与磁盘一致、输入闭包、证据文件 hash 与
 `decision_id` 定位），通过后推进为 `accepted`。任何一条失败整体退出非零，并逐条报告
 `applied / skipped / failed` 与原因。它只应用**已经写下的决定**，不代替创作者做决定。
+文件名不决定依赖顺序：工具先解析全部决定，再在每轮应用当前输入闭包已满足的记录；只要
+本轮有进展就重试尚缺 accepted provider 的记录，直到全部推进或不再有进展。被更新决定的
+`supersedes_decision_id` 指向的旧记录会直接记为 `skipped`，不会先应用过期决定。
 接受成功后 candidate 字段归档，同一 target 只能接受一次；对已接受且目标完全一致的
 决定，重复应用记为 `skipped`（reason `already accepted with identical targets`），退出码
 仍为 0——重跑批次不是失败，决定文件不需要删除。目标不一致的旧决定仍会失败：修订流程是
-重新发布新 candidate、`decide --force` 覆盖旧决定后再接受，而不是重复接受旧 target。
+重新发布新 candidate、`decide --force` 写替代决定后再接受，而不是重复接受旧 target。
 
 批量生产的回合合并策略见 `batch-production.md`。
 
@@ -178,10 +181,10 @@ python3 <core>/scripts/project_tool.py decide <project> \
 ```
 
 默认写到 `创作者决策/<artifact-id 冒号→连字符>.json`（`--output` 可覆盖）。文件已存在时
-报错不覆盖，除非加 `--force`：覆盖写入一份新决定，旧文件的 `decision_id` 记入新记录的
-`supersedes_decision_id` 作为审计链；旧文件字节被替换，但状态里的证据引用绑定的是旧
-hash——所以 `--force` 只用于**尚未接受**的候选改版重发（旧决定还没被消费，覆盖无害），
-已接受产物没有 candidate targets，`decide` 本身会拒绝。`--output` 只能写到
+报错不覆盖，除非加 `--force`：旧文件保持原字节，新决定写到同目录的
+`<stem>.superseding-<decision-id>.json`，并用 `supersedes_decision_id` 形成不可变审计链。
+因此旧决定即使已被其它产物引用也不会发生 hash 漂移；已接受产物没有 candidate targets，
+`decide` 本身仍会拒绝。`--output` 只能写到
 `创作者决策/` 根下：受保护目录（`交付/`、`输入/`、`.short-drama/`）与决策目录之外的
 其他阶段根会被拒绝——决定文件是 `accept-batch` 从决策根扫描的生命周期证据，写到别处
 既逃过布局保护，也会让决定永远不被应用。**不写项目状态**，应用仍由 `accept-batch`
@@ -363,6 +366,9 @@ fresh reviewer 或冷读审查者只读这份文件即可获得全部事实与�
   一次。出现零次或多次一律拒绝，不做猜测。
 - **JSON 选择器是 RFC 6901 指针**，例如 `/creator_authority/production_profile`。
 - 记录 `hash` 按键名排序后的规范形式计算，所以重排字段或改动缩进不会误判为变化。
+- screenplay-index 1.1 的 block 以 `record_hash_version: screenplay-block-v1` 明确采用稳定
+  摘要：保留 block ID、类型、场景、内容 hash 和语义字段，排除父剧本文件 hash、行/字节
+  偏移与 revision mapping。1.0 索引继续使用 legacy 全记录摘要，重建到 1.1 时显式迁移一次。
 - **Markdown 不能做记录级绑定**：它没有可机器校验的记录身份，收窄只会变成一句无法
   验证的承诺。剧本类依赖仍按整文件绑定，需要更小半径就先拆文件。
 

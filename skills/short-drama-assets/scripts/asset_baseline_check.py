@@ -112,7 +112,10 @@ def _nonempty(value: Any) -> bool:
     if isinstance(value, list):
         return bool(value) and all(_nonempty(item) for item in value)
     if isinstance(value, dict):
-        return bool(value) and all(_nonempty(item) for item in value.values())
+        return bool(value) and all(
+            (isinstance(item, list) and not item) or _nonempty(item)
+            for item in value.values()
+        )
     return True
 
 
@@ -135,15 +138,23 @@ def _require_fields(
     fields: Iterable[str],
     *,
     code: str,
+    allow_empty: Iterable[str] = (),
 ) -> None:
+    empty_allowed = set(allow_empty)
     for field in fields:
-        if not _nonempty(record.get(field)):
+        value = record.get(field)
+        if field in empty_allowed and isinstance(value, list):
+            valid = all(_nonempty(item) for item in value)
+        else:
+            valid = _nonempty(value)
+        if not valid:
             findings.append(
                 _finding(code, f"{record_id} missing non-ambiguous field: {field}", record_id=record_id)
             )
 
 
 def validate_m15a(directory: Path) -> dict[str, Any]:
+    directory = directory.resolve()
     findings: list[dict[str, Any]] = []
     scope = _load_jsonl(directory / GENERATION_FILES["scope"])
     models = _load_jsonl(directory / GENERATION_FILES["models"])
@@ -276,7 +287,14 @@ def validate_m15a(directory: Path) -> dict[str, Any]:
             if kind == "location"
             else common_full + kind_fields.get(str(kind), ())
         )
-        _require_fields(findings, model, asset_id, fields, code="M15_MODEL_FIELD")
+        _require_fields(
+            findings,
+            model,
+            asset_id,
+            fields,
+            code="M15_MODEL_FIELD",
+            allow_empty=("permanent_marks", "asymmetry"),
+        )
         if tier == "compact":
             anchors = model.get("recognition_anchors")
             if not isinstance(anchors, list) or not 2 <= len(anchors) <= 4:
@@ -386,6 +404,7 @@ def validate_m15a(directory: Path) -> dict[str, Any]:
 
 
 def validate_fragments(directory: Path, *, prompt_language: str) -> dict[str, Any]:
+    directory = directory.resolve()
     findings: list[dict[str, Any]] = []
     scope = _load_jsonl(directory / GENERATION_FILES["scope"])
     fragments = _load_jsonl(directory / GENERATION_FILES["fragments"])

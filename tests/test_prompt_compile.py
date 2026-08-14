@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -71,6 +73,25 @@ class PromptCompileTests(unittest.TestCase):
         headings = ["Task and format:", "Fixed asset baseline:", "State delta:", "View and spatial projection:", "Current task:", "Exclusions:"]
         self.assertEqual([prompt.index(value) for value in headings], sorted(prompt.index(value) for value in headings))
         COMPILER.validate_compiled_record(first, self.fragments)
+
+    def test_fragment_library_is_deterministic_and_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "canonical-fragments.jsonl"
+            source.write_text(
+                "".join(
+                    json.dumps(record, ensure_ascii=False) + "\n"
+                    for record in self.fragments.values()
+                ),
+                encoding="utf-8",
+            )
+            first = COMPILER.render_fragment_library(source)
+            second = COMPILER.render_fragment_library(source)
+            self.assertEqual(first, second)
+            self.assertIn(COMPILER.hashlib.sha256(source.read_bytes()).hexdigest(), first)
+            for fragment_id, record in self.fragments.items():
+                self.assertIn(fragment_id, first)
+                self.assertIn(record["fragment_hash"], first)
+                self.assertIn(record["text"], first)
 
     def test_reordered_or_tampered_fragments_fail(self) -> None:
         reordered = {**self.record, "prompt_components": dict(self.record["prompt_components"])}

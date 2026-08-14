@@ -15,6 +15,14 @@
 
 - 修复固定流程闭环：M1 必须逐项接受三份开发产物，`package` 必须在 M2–M6 全部完成后执行，
   经创作者批准省略的产物会作为已结算交付推进 M7。
+- M3 剧本引用统一使用 index 文件 hash 与 block ID，分拆发布的 occurrences、decisions、
+  continuity 可在一次批量接受中完成，并与 pipeline 使用同一套门禁。
+- 未改动的剧本 block 不再因其它段落修订、位置移动或父文件 hash 更新而连锁失效；自动记录
+  绑定无法唯一解析时安全退回整文件绑定，显式绑定仍保持严格校验。
+- `accept-batch` 会按依赖关系多轮推进；`decide --force` 保留旧决定并写入可审计的替代证据，
+  不再因覆盖证据文件导致下游 hash 漂移。
+- 支持直接发布已位于目标路径的候选文件；资产基线允许明确为空的可选特征集合；标准提示
+  片段库可由结构化源确定性导出，不再需要手工拼装 Markdown。
 - 派生 Markdown 现在绑定当前结构化源 hash，并逐项包含编译文本/片段、generation clip 与容器 ID；
   自由改写、漏项、换版或过期缓存会在发布前阻断。
 - generation clip 的 planned boundary 必须包含姿态、位置、视线、双手持物和可见状态；真实
@@ -24,24 +32,7 @@
 - 文档按入口、流程、数据流、命令、契约和维护重新分层；新增长篇输入到交付、结构化权威到
   派生 Markdown、长 shot 到 15 秒 generation clip 的端到端消费说明。
 
-### 2026-08-14 — 0.5.0
-
-- 新增强制 M1.5 生成资产基线：六类资产 full/compact 模型、场景空间拓扑、视图契约与标准提示片段。
-- 新增 M2→M5 资产消费闭包：M3 不得后补身份/变体，M4a 覆盖本集资产，shot/keyframe/motion
-  逐镜复用同一有序 asset/model/View/variant/fragment ID+hash 指纹，漏消费、换版或重排都会阻断交付。
-- 图片规格、关键帧和运动规格改为确定性编译，交付包携带本集实际消费的基线记录与哈希。
-- pipeline 升为 2.0.0；旧项目完成 M1.5 后必须运行 `upgrade-flow`，不提供 legacy 开关。
-- 套件升为 0.5.0、契约升为 `1.3.0-draft`；新增第 9 个公共技能
-  `short-drama-novel-analyze`，提供章节索引、抽样快评、逐章提取、覆盖率和分集候选。
-- 多集整稿新增精确索引、逐集切片、磁盘断点和原子幂等合并，不再要求整季内容进入一次上下文。
-- 发布与恢复新增跨平台路径碰撞防护、严格 JSON/有限数值校验和符号链接竞态防护；
-  Dashboard 增加真实 HTTP 会话与安全响应头回归测试。
-- Windows 路径进一步拒绝保留设备名、非法字符、控制字符和尾随空格/句点；CLI JSON
-  在旧代码页下仍可安全读取，套件文本哈希兼容 LF/CRLF 安装。
-- 新增 generation clip 执行层：影视镜头可按项目默认 15 秒上限拆成连续模型调用片段，
-  自动校验完整覆盖、时长、顺序、motion 引用与续接交接，不改写剪辑边界。
-- 测试当时增至 181 项；CI 覆盖三平台 Python 3.10/3.14、固定版本 Ruff 和无依赖 Dashboard JavaScript 检查。
-- 完整记录见 [发布说明](docs/releases/release-notes.md)。
+完整记录见 [发布说明](docs/releases/release-notes.md)。
 
 ## 技能清单
 
@@ -84,7 +75,7 @@ video.skills/
 │   ├── short-drama-storyboard/
 │   ├── short-drama-video-prompts/
 │   └── short-drama-review/
-├── tests/                        # 187 项 Python 测试 + Dashboard Node 测试
+├── tests/                        # 196 项 Python 测试 + Dashboard Node 测试
 ├── docs/                         # 文档导航、发布说明与仓库维护手册
 ├── .github/workflows/suite.yml   # CI：三平台 × Python 3.10/3.14，含固定 Ruff 与 Node 20
 └── tools/
@@ -158,7 +149,7 @@ python3 tools/update_suite_manifest.py
 
 ## 测试与持续集成
 
-仓库自带 stdlib-only Python 测试套件，当前共 187 项；Dashboard 前端另有一组无 npm
+仓库自带 stdlib-only Python 测试套件，当前共 196 项；Dashboard 前端另有一组无 npm
 依赖的 Node 测试。Windows 上 6 个 Dashboard POSIX-dirfd `ProjectStore` 用例按设计跳过，
 真实 HTTP handler 测试仍在 Windows 执行：
 
@@ -168,7 +159,7 @@ python3 tools/update_suite_manifest.py
   零手工 hash 的 accept/review、`review-batch --episode` 过滤、输出语言契约
   （默认值 / 自定义 / 畸形 tag 拒绝 / 旧项目回退）、`--input-record-auto` 自动收集、
   `unpublish` 撤销与已接受保护、review-batch 排序（fresh 最后）、verdict 聚合报错、
-  `accept-batch` 幂等重放与篡改决定拒绝、`decide --force` 覆盖旧决定与 `--output` 路径
+  `accept-batch` 幂等重放、依赖拓扑重试与篡改决定拒绝、`decide --force` 不可变替代决定与 `--output` 路径
   约束、剧本索引过期与时长不足警告、`pipeline` 的 `duration_estimate` 报告、带
   `previous_source_ref` 血缘的修订索引发布。
   另覆盖委托创作者决定、M2 完整文件门禁、外部编辑实时失效、delivery_surface 硬门禁、
@@ -244,7 +235,10 @@ M1.5，再运行 `upgrade-flow` 才能推进 M2–M7。
 
 记录级绑定默认自动：`publish` 的 `--input-record-auto`（默认开）从候选输出里指向已声明
 输入的结构化 refs 自动收集 `record_id`，一个 8 角色的文件不用手写 8 条
-`--input-record`——设定集追加新身份不会让引用它的产物连锁 `stale`。
+`--input-record`——设定集追加新身份不会让引用它的产物连锁 `stale`。无法唯一解析的自动
+selector 会静默退回整文件绑定；显式 `--input-record` 仍严格报错。新版剧本索引使用
+`screenplay-block-v1` 稳定摘要，父剧本文件 hash、行字节偏移和 revision mapping 变化不会
+让内容未变的 block 绑定失效。
 
 例行单集执行的 CLI 命令不需要手工 hash（`--target`、`--evidence-hash`、`--verdict-hash`
 由工具从快照/磁盘现算，仍逐 hash 核对）；写 verdict 时其内部 `findings_ref.hash`

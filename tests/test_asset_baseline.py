@@ -161,6 +161,19 @@ class AssetBaselineTests(unittest.TestCase):
         self.assertIn("M15_MODEL_FIELD", codes)
         self.assertIn("M15_MODEL_ANCHORS", codes)
 
+    def test_explicitly_empty_optional_collections_are_not_missing(self) -> None:
+        scope = self._scope("CHAR-CLEAN", "character", "full")
+        model = self._full("CHAR-CLEAN", "character")
+        model["permanent_marks"] = []
+        model["asymmetry"] = []
+        model["text_policy"] = {"mode": "no_readable_text", "surfaces": []}
+        model["limbs"] = {"hands": "five fingers", "attachments": []}
+        self._write("asset-scope.jsonl", [scope])
+        self._write("asset-models.jsonl", [model])
+        self._write("view-contracts.jsonl", [self._view(model, "CHAR-CLEAN")])
+        result = CHECKER.validate_m15a(self.directory)
+        self.assertEqual(result["status"], "pass", result["findings"])
+
     def test_view_rejects_stale_model_record_hash(self) -> None:
         scope = self._scope("PROP-ONE", "prop", "compact")
         model = self._compact("PROP-ONE", "prop")

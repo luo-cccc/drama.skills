@@ -764,6 +764,167 @@ class LifecycleSmokeTests(unittest.TestCase):
             sorted(keys),
         )
 
+    def test_input_record_auto_falls_back_when_selector_is_unresolved(self) -> None:
+        input_relative = "设定集/characters.jsonl"
+        input_path = self.root / input_relative
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text('{"character_id":"CHAR-ONE"}\n', encoding="utf-8")
+        input_hash = hashlib.sha256(input_path.read_bytes()).hexdigest()
+        source = self.root / "输入/auto-fallback.json"
+        source.parent.mkdir(exist_ok=True)
+        source.write_text(
+            json.dumps(
+                {
+                    "record_id": "AUTO-FALLBACK",
+                    "source_ref": {
+                        "owner": "short-drama-assets",
+                        "artifact": input_relative,
+                        "hash": input_hash,
+                        "record_id": "CHAR-MISSING",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        published = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:auto-fallback",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/auto-fallback.json=输入/auto-fallback.json",
+            "--input",
+            f"{input_relative}={input_hash}",
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        record = load_state(self.root)["artifacts"]["EP001:auto-fallback"]
+        self.assertNotIn(input_relative, record.get("candidate_input_records", {}))
+
+        explicit = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:auto-fallback",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/auto-fallback.json=输入/auto-fallback.json",
+            "--input",
+            f"{input_relative}={input_hash}",
+            "--input-record",
+            f"{input_relative}=CHAR-MISSING",
+        )
+        self.assertNotEqual(explicit.returncode, 0)
+        self.assertIn("record selector must resolve exactly once", explicit.stderr)
+
+    def test_publish_allows_existing_target_as_candidate_source(self) -> None:
+        target = self.root / "剧集/EP001/custom/in-place.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('{"record_id":"IN-PLACE"}', encoding="utf-8")
+        published = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:in-place",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/in-place.json=剧集/EP001/custom/in-place.json",
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        record = load_state(self.root)["artifacts"]["EP001:in-place"]
+        self.assertEqual(list(record["candidate_targets"]), ["剧集/EP001/custom/in-place.json"])
+        self.assertNotIn(
+            "剧集/EP001/custom/in-place.json",
+            record["candidate_inputs"],
+        )
+
+    def test_m3_publish_uses_file_hash_ref_and_internal_record_binding(self) -> None:
+        self._publish_candidate()
+        index_relative = "剧集/EP001/screenplay-index.jsonl"
+        index_path = self.root / index_relative
+        records = [
+            json.loads(line)
+            for line in index_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        block = next(record for record in records if record.get("record_type") == "block")
+        block_id = block["block_id"]
+        stable_material = dict(block)
+        stable_material["source_ref"] = {
+            key: value
+            for key, value in block["source_ref"].items()
+            if key != "hash"
+        }
+        for field in ("byte_start", "byte_end", "line_start", "line_end", "mapping"):
+            stable_material.pop(field, None)
+        block_hash = hashlib.sha256(
+            json.dumps(
+                stable_material,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        index_hash = hashlib.sha256(index_path.read_bytes()).hexdigest()
+        occurrence = {
+            "occurrence_id": "OCC-RECORD-HASH",
+            "asset_kind": "character",
+            "source_ref": {
+                "owner": "short-drama-write",
+                "artifact": index_relative,
+                "record_id": block_id,
+                "hash": index_hash,
+            },
+            "source_blocks": [block_id],
+            "proposed_binding": {"identity_id": "CHAR-TEST"},
+        }
+        source = self.root / "输入/m3-occurrences.jsonl"
+        source.write_text(
+            json.dumps(occurrence, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        published = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-assets",
+            "--artifact-id",
+            "EP001:m3-occurrences",
+            "--output",
+            "剧集/EP001/assets/occurrences.jsonl=输入/m3-occurrences.jsonl",
+            "--input",
+            f"{index_relative}={index_hash}",
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        bound = load_state(self.root)["artifacts"]["EP001:m3-occurrences"][
+            "candidate_input_records"
+        ]
+        self.assertEqual(bound[index_relative][block_id], block_hash)
+
+        occurrence["source_ref"]["hash"] = "0" * 64
+        source.write_text(
+            json.dumps(occurrence, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        rejected = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-assets",
+            "--artifact-id",
+            "EP001:m3-occurrences",
+            "--output",
+            "剧集/EP001/assets/occurrences.jsonl=输入/m3-occurrences.jsonl",
+            "--input",
+            f"{index_relative}={index_hash}",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("structured ref input hash does not match", rejected.stderr)
+
     def test_complete_m2_rejects_missing_asset_records(self) -> None:
         self._install_generation_baseline()
         (self.root / "输入").mkdir(exist_ok=True)
@@ -1363,7 +1524,85 @@ class LifecycleSmokeTests(unittest.TestCase):
             state["artifacts"]["EP001:script"]["creator_acceptance"], "accepted"
         )
 
-    def test_decide_force_replaces_decision(self) -> None:
+    def test_accept_batch_retries_reverse_dependency_order(self) -> None:
+        source_dir = self.root / "输入"
+        source_dir.mkdir(exist_ok=True)
+        provider_source = source_dir / "provider.json"
+        provider_source.write_text('{"provider_id":"PROVIDER-1"}', encoding="utf-8")
+        provider_relative = "剧集/EP001/custom/provider.json"
+        provider = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "ZZ:provider",
+            "--allow-unregistered-path",
+            "--output",
+            f"{provider_relative}=输入/provider.json",
+        )
+        self.assertEqual(provider.returncode, 0, provider.stderr)
+        provider_hash = hashlib.sha256(provider_source.read_bytes()).hexdigest()
+        consumer_source = source_dir / "consumer.json"
+        consumer_source.write_text(
+            json.dumps(
+                {
+                    "consumer_id": "CONSUMER-1",
+                    "provider_ref": {
+                        "owner": "short-drama-write",
+                        "artifact": provider_relative,
+                        "hash": provider_hash,
+                        "authority": "candidate",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        consumer = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "AA:consumer",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/consumer.json=输入/consumer.json",
+            "--input",
+            f"{provider_relative}={provider_hash}",
+        )
+        self.assertEqual(consumer.returncode, 0, consumer.stderr)
+        self.assertEqual(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "AA:consumer",
+                "--decision",
+                "accepted",
+                "--output",
+                "创作者决策/00-consumer.json",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "ZZ:provider",
+                "--decision",
+                "accepted",
+                "--output",
+                "创作者决策/99-provider.json",
+            ).returncode,
+            0,
+        )
+        accepted = json.loads(run_tool("accept-batch", str(self.root)).stdout)
+        self.assertEqual(accepted["applied"], 2)
+        self.assertEqual(accepted["failed"], 0)
+
+    def test_decide_force_preserves_and_supersedes_decision(self) -> None:
         self._publish_candidate()
         first = run_tool(
             "decide",
@@ -1377,6 +1616,7 @@ class LifecycleSmokeTests(unittest.TestCase):
         decision_path = self.root / "创作者决策" / "EP001-script.json"
         self.assertTrue(decision_path.is_file())
         old_doc = json.loads(decision_path.read_text(encoding="utf-8"))
+        old_bytes = decision_path.read_bytes()
         self.assertEqual(old_doc["supersedes_decision_id"], None)
         # Plain decide refuses to overwrite.
         refused = run_tool(
@@ -1389,8 +1629,8 @@ class LifecycleSmokeTests(unittest.TestCase):
         )
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("decision file already exists", refused.stderr)
-        # --force replaces the file and records the superseded decision_id.
-        replaced = json.loads(
+        # --force writes immutable sibling evidence and links the old decision.
+        superseding = json.loads(
             run_tool(
                 "decide",
                 str(self.root),
@@ -1401,14 +1641,56 @@ class LifecycleSmokeTests(unittest.TestCase):
                 "--force",
             ).stdout
         )
-        new_doc = json.loads(decision_path.read_text(encoding="utf-8"))
-        self.assertEqual(new_doc["decision_id"], replaced["decision_id"])
+        superseding_path = self.root / superseding["path"]
+        self.assertNotEqual(superseding_path, decision_path)
+        self.assertEqual(decision_path.read_bytes(), old_bytes)
+        new_doc = json.loads(superseding_path.read_text(encoding="utf-8"))
+        self.assertEqual(new_doc["decision_id"], superseding["decision_id"])
         self.assertEqual(new_doc["supersedes_decision_id"], old_doc["decision_id"])
-        # The replaced decision still applies cleanly.
-        self.assertEqual(run_tool("accept-batch", str(self.root)).returncode, 0)
+        # Batch skips the superseded record and consumes the replacement.
+        accepted = json.loads(run_tool("accept-batch", str(self.root)).stdout)
+        self.assertEqual(accepted["applied"], 1)
+        self.assertEqual(accepted["failed"], 0)
         state = load_state(self.root)
         self.assertEqual(
             state["artifacts"]["EP001:script"]["creator_acceptance"], "accepted"
+        )
+        self.assertEqual(
+            state["artifacts"]["EP001:script"]["creator_decision"]["evidence_ref"]["artifact"],
+            superseding["path"],
+        )
+
+    def test_malformed_superseder_does_not_suppress_valid_decision(self) -> None:
+        self._publish_candidate()
+        original = json.loads(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "EP001:script",
+                "--decision",
+                "accepted",
+            ).stdout
+        )
+        malformed = self.root / "创作者决策/malformed-superseder.json"
+        malformed.write_text(
+            json.dumps(
+                {
+                    "decision_id": "CD-MALFORMED",
+                    "decision_kind": "artifact_acceptance",
+                    "artifact_id": "EP001:script",
+                    "status": "rejected",
+                    "supersedes_decision_id": original["decision_id"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        accepted = json.loads(run_tool("accept-batch", str(self.root)).stdout)
+        self.assertEqual(accepted["applied"], 1)
+        self.assertEqual(accepted["failed"], 0)
+        self.assertEqual(
+            load_state(self.root)["artifacts"]["EP001:script"]["creator_acceptance"],
+            "accepted",
         )
 
     def test_publish_warns_stale_screenplay_index(self) -> None:

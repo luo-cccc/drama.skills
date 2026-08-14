@@ -53,7 +53,7 @@ refs 会自动把 `record_id` 并入绑定，不需要手写。使用者的义�
 - **接受与重发布都按自底向上的依赖序**：一次上游 hash 变更（改决定记录、设定集、变体）
   会让所有引用它的候选在 accept 时报 `accepted input hash does not match live file`。
   处置是自底向上重发：先重发布引用旧 hash 的全部候选（`--input` 指向新 hash），再逐层
-  `decide --force` 覆盖旧决定并 `accept-batch`——不要只改源头、不重发中间层。
+  `decide --force` 写 superseding 决定并 `accept-batch`——不要只改源头、不重发中间层。
 
 ## 4. base 与 delta 结论分离存放
 

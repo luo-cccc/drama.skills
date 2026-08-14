@@ -2907,6 +2907,48 @@ def _canonical_record_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+SCREENPLAY_BLOCK_RECORD_HASH_VERSION = "screenplay-block-v1"
+
+
+def _record_digest_material(relative: str, record: Mapping[str, Any]) -> Any:
+    """Return versioned canonical material for one record-level binding.
+
+    Screenplay index 1.1 block records explicitly opt into a stable digest.
+    Their parent screenplay hash, byte/line position, and revision mapping are
+    provenance for the index as a whole, not part of the block's semantic
+    identity. Older indexes have no opt-in marker and keep their legacy full
+    record digest, so existing accepted bindings are not silently reinterpreted.
+    """
+
+    if (
+        PurePosixPath(relative).name.casefold() == "screenplay-index.jsonl"
+        and record.get("record_type") == "block"
+        and record.get("record_hash_version") == SCREENPLAY_BLOCK_RECORD_HASH_VERSION
+    ):
+        material = dict(record)
+        source_ref = material.get("source_ref")
+        if isinstance(source_ref, dict):
+            stable_source_ref = dict(source_ref)
+            stable_source_ref.pop("hash", None)
+            material["source_ref"] = stable_source_ref
+        for field in (
+            "byte_start",
+            "byte_end",
+            "line_start",
+            "line_end",
+            "mapping",
+        ):
+            material.pop(field, None)
+        return material
+    return record
+
+
+def _record_digest(relative: str, record: Mapping[str, Any]) -> str:
+    return sha256_bytes(
+        _canonical_record_bytes(_record_digest_material(relative, record))
+    )
+
+
 def _jsonl_records(content: bytes, relative: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for number, line in enumerate(content.decode("utf-8").splitlines(), start=1):
@@ -2996,7 +3038,7 @@ def _record_digests(
                     raise ValueError(
                         f"record selector must resolve exactly once: {relative} {selector}"
                     )
-                digests[selector] = sha256_bytes(_canonical_record_bytes(matches[0]))
+                digests[selector] = _record_digest(relative, matches[0])
         else:
             try:
                 document = _json_loads(content.decode("utf-8"))
@@ -3972,19 +4014,33 @@ def publish_candidate(
                         f"{referenced_path}"
                     )
                 continue
+            if referenced_path not in exact_inputs:
+                raise ValueError(
+                    f"structured ref requires exact input: {referenced_path}"
+                )
+            referenced_content = _read_project_regular(root, referenced_path)
+            input_file_hash = sha256_bytes(referenced_content)
+            if input_file_hash != exact_inputs[referenced_path]:
+                raise ValueError(
+                    f"structured ref input is stale: {referenced_path}"
+                )
+            if input_file_hash != referenced_hash:
+                raise ValueError(
+                    f"structured ref input hash does not match: {referenced_path}"
+                )
             if reference_authority == "candidate":
                 accepted_provider = any(
                     isinstance(record, dict)
                     and isinstance(record.get("accepted_targets"), dict)
                     and record["accepted_targets"].get(referenced_path)
-                    == referenced_hash
+                    == input_file_hash
                     for record in artifacts.values()
                 )
                 candidate_provider = any(
                     isinstance(record, dict)
                     and isinstance(record.get("candidate_targets"), dict)
                     and record["candidate_targets"].get(referenced_path)
-                    == referenced_hash
+                    == input_file_hash
                     for record in artifacts.values()
                 )
                 if accepted_provider:
@@ -3997,14 +4053,6 @@ def publish_candidate(
                         "candidate input has no matching candidate provider: "
                         f"{referenced_path}"
                     )
-            if referenced_path not in exact_inputs:
-                raise ValueError(
-                    f"structured ref requires exact input: {referenced_path}"
-                )
-            if exact_inputs[referenced_path] != referenced_hash:
-                raise ValueError(
-                    f"structured ref input hash does not match: {referenced_path}"
-                )
     lifecycle_changes = {
         artifact_id: {
             "build_state": "materialized",
@@ -4239,8 +4287,6 @@ def accept_decisions_batch(
     root = find_project(path)
     layout = project_layout(root)
     roots = layout.get("roots")
-    state = _read_state(root)
-    artifacts = state.get("artifacts", {}) if isinstance(state, dict) else {}
     if decisions_dir:
         decision_root = _relative_path(decisions_dir)
     elif isinstance(roots, dict) and roots.get("creator-decisions"):
@@ -4259,6 +4305,9 @@ def accept_decisions_batch(
             evidence_files.append(relative)
 
     results: list[dict[str, Any]] = []
+    tasks: list[dict[str, Any]] = []
+    decision_identities: dict[str, list[str]] = {}
+    supersession_links: list[tuple[str, str]] = []
     for relative in evidence_files:
         source = _project_path(root, relative)
         if not source.is_file():
@@ -4288,6 +4337,20 @@ def accept_decisions_batch(
                 continue
             artifact_id = record.get("artifact_id")
             raw_decision = record.get("decision") or record.get("status")
+            target_hashes = record.get("target_hashes")
+            if isinstance(record_id, str) and isinstance(artifact_id, str):
+                decision_identities.setdefault(record_id, []).append(artifact_id)
+            superseded = record.get("supersedes_decision_id")
+            if (
+                isinstance(record_id, str)
+                and isinstance(artifact_id, str)
+                and isinstance(superseded, str)
+                and superseded
+                and isinstance(raw_decision, str)
+                and raw_decision.casefold() in {"accepted", "rejected"}
+                and isinstance(target_hashes, dict)
+            ):
+                supersession_links.append((record_id, superseded))
             if not isinstance(raw_decision, str) or raw_decision.casefold() != "accepted":
                 results.append(
                     {
@@ -4298,7 +4361,6 @@ def accept_decisions_batch(
                     }
                 )
                 continue
-            target_hashes = record.get("target_hashes")
             if not isinstance(artifact_id, str) or not isinstance(target_hashes, dict):
                 results.append(
                     {
@@ -4309,13 +4371,6 @@ def accept_decisions_batch(
                     }
                 )
                 continue
-            evidence_ref: dict[str, Any] = {
-                "owner": "creator",
-                "artifact": relative,
-                "hash": digest,
-            }
-            if record_id is not None:
-                evidence_ref["record_id"] = record_id
             try:
                 normalized_targets = _normalize_hash_mapping(
                     {
@@ -4325,7 +4380,69 @@ def accept_decisions_batch(
                     },
                     label="creator decision target",
                 )
-                already = artifacts.get(artifact_id)
+            except ValueError as error:
+                results.append(
+                    {
+                        "file": relative,
+                        "artifact_id": artifact_id,
+                        "status": "failed",
+                        "reason": str(error),
+                    }
+                )
+                continue
+            tasks.append(
+                {
+                    "file": relative,
+                    "digest": digest,
+                    "record_id": record_id,
+                    "artifact_id": artifact_id,
+                    "target_hashes": normalized_targets,
+                }
+            )
+
+    superseded_ids = {
+        superseded_id
+        for superseding_id, superseded_id in supersession_links
+        if len(decision_identities.get(superseding_id, [])) == 1
+        and len(decision_identities.get(superseded_id, [])) == 1
+        and decision_identities[superseding_id][0]
+        == decision_identities[superseded_id][0]
+    }
+    pending: list[dict[str, Any]] = []
+    for task in tasks:
+        if task["record_id"] in superseded_ids:
+            results.append(
+                {
+                    "file": task["file"],
+                    "artifact_id": task["artifact_id"],
+                    "status": "skipped",
+                    "reason": "decision is superseded by a newer evidence record",
+                }
+            )
+        else:
+            pending.append(task)
+
+    while pending:
+        progress = False
+        retry: list[dict[str, Any]] = []
+        for task in pending:
+            artifact_id = task["artifact_id"]
+            digest = task["digest"]
+            evidence_ref: dict[str, Any] = {
+                "owner": "creator",
+                "artifact": task["file"],
+                "hash": digest,
+            }
+            if task["record_id"] is not None:
+                evidence_ref["record_id"] = task["record_id"]
+            try:
+                current_state = _read_state(root)
+                current_artifacts = (
+                    current_state.get("artifacts", {})
+                    if isinstance(current_state, dict)
+                    else {}
+                )
+                already = current_artifacts.get(artifact_id)
                 accepted_targets = (
                     already.get("accepted_targets")
                     if isinstance(already, dict)
@@ -4344,22 +4461,12 @@ def accept_decisions_batch(
                     isinstance(already, dict)
                     and already.get("creator_acceptance") == "accepted"
                     and isinstance(accepted_targets, dict)
-                    and accepted_targets == normalized_targets
+                    and accepted_targets == task["target_hashes"]
                     and evidence_hash_matches
                 ):
-                    # Idempotent replay: a decision already consumed against the
-                    # exact same targets, still at the same evidence hash, is not
-                    # an error. Re-running accept-batch after a success must not
-                    # report a fake failure — the accepted artifact no longer
-                    # carries candidate_targets, so the strict path below would
-                    # reject. The evidence-hash guard keeps the skip honest: if
-                    # the decision file was replaced or hand-edited after being
-                    # consumed, the recorded evidence ref no longer matches, so
-                    # the record falls through to the strict path and fails
-                    # instead of silently skipping a tampered decision.
                     results.append(
                         {
-                            "file": relative,
+                            "file": task["file"],
                             "artifact_id": artifact_id,
                             "status": "skipped",
                             "reason": "already accepted with identical targets",
@@ -4370,25 +4477,51 @@ def accept_decisions_batch(
                     root,
                     artifact_id=artifact_id,
                     decision="accepted",
-                    target_hashes={
-                        str(key): str(value)
-                        for key, value in target_hashes.items()
-                        if isinstance(key, str) and isinstance(value, str)
-                    },
+                    target_hashes=task["target_hashes"],
                     evidence_ref=evidence_ref,
                 )
                 results.append(
-                    {"file": relative, "artifact_id": artifact_id, "status": "accepted"}
-                )
-            except (OSError, ValueError, TransactionError) as error:
-                results.append(
                     {
-                        "file": relative,
+                        "file": task["file"],
                         "artifact_id": artifact_id,
-                        "status": "failed",
-                        "reason": str(error),
+                        "status": "accepted",
                     }
                 )
+                progress = True
+            except (OSError, ValueError, TransactionError) as error:
+                reason = str(error)
+                if any(
+                    marker in reason
+                    for marker in (
+                        "accepted input has no matching accepted provider",
+                        "accepted input provider is not current",
+                    )
+                ):
+                    retry.append({**task, "last_error": reason})
+                    continue
+                results.append(
+                    {
+                        "file": task["file"],
+                        "artifact_id": artifact_id,
+                        "status": "failed",
+                        "reason": reason,
+                    }
+                )
+        if not retry:
+            break
+        if progress:
+            pending = retry
+            continue
+        results.extend(
+            {
+                "file": task["file"],
+                "artifact_id": task["artifact_id"],
+                "status": "failed",
+                "reason": task["last_error"],
+            }
+            for task in retry
+        )
+        break
     return {
         "checked": len(results),
         "applied": sum(result["status"] == "accepted" for result in results),
@@ -4708,17 +4841,53 @@ def write_creator_decision(
     if decision_path.exists():
         if not force:
             raise FileExistsError(f"decision file already exists: {relative}")
-        # --force replaces the file; keep the superseded decision_id as an
-        # explicit audit link instead of silently dropping the old record.
-        try:
-            previous = _json_loads(decision_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, UnicodeError):
-            previous = None
-        previous_id = previous.get("decision_id") if isinstance(previous, dict) else None
-        if isinstance(previous_id, str) and previous_id:
-            supersedes_decision_id = previous_id
+        # Accepted evidence is immutable: find the latest unsuperseded decision
+        # for this artifact, link to it, and write a sibling file. Replacing the
+        # old bytes would invalidate every accepted artifact that cites them.
+        candidates: list[dict[str, Any]] = []
+        for entry in sorted(decision_path.parent.glob("*.json")):
+            try:
+                previous = _json_loads(entry.read_text(encoding="utf-8"))
+            except (OSError, ValueError, UnicodeError):
+                continue
+            if (
+                isinstance(previous, dict)
+                and previous.get("decision_kind") == "artifact_acceptance"
+                and previous.get("artifact_id") == artifact_id
+                and isinstance(previous.get("decision_id"), str)
+            ):
+                candidates.append(previous)
+        superseded = {
+            value
+            for candidate in candidates
+            if isinstance(
+                (value := candidate.get("supersedes_decision_id")), str
+            )
+            and value
+        }
+        tips = [
+            candidate
+            for candidate in candidates
+            if candidate["decision_id"] not in superseded
+        ]
+        if tips:
+            latest = max(
+                tips,
+                key=lambda candidate: (
+                    str(candidate.get("decided_at") or ""),
+                    str(candidate["decision_id"]),
+                ),
+            )
+            supersedes_decision_id = latest["decision_id"]
+    decision_id = f"CD-{uuid.uuid4().hex[:12].upper()}"
+    if decision_path.exists():
+        pure = PurePosixPath(relative)
+        relative = pure.with_name(
+            f"{pure.stem}.superseding-{decision_id}{pure.suffix}"
+        ).as_posix()
+        decision_path = _project_path(root, relative)
     document = {
-        "decision_id": f"CD-{uuid.uuid4().hex[:12].upper()}",
+        "decision_id": decision_id,
         "decision_kind": "artifact_acceptance",
         "artifact_id": artifact_id,
         "status": normalized_decision,
@@ -6490,14 +6659,13 @@ def _publish_from_cli(args: argparse.Namespace) -> dict[str, Any]:
     for raw_target, raw_source in bindings.items():
         target = _relative_path(raw_target)
         source = _relative_path(raw_source)
-        if target == source:
-            raise ValueError("candidate source and publication target must differ")
         content = _read_project_regular(root, source)
         source_hash = sha256_bytes(content)
-        previous = inputs.get(source)
-        if previous is not None and previous != source_hash:
-            raise ValueError(f"input hash does not match candidate source: {source}")
-        inputs[source] = source_hash
+        if target != source:
+            previous = inputs.get(source)
+            if previous is not None and previous != source_hash:
+                raise ValueError(f"input hash does not match candidate source: {source}")
+            inputs[source] = source_hash
         outputs[target] = content
     records: dict[str, list[str]] = {}
     record_paths: dict[str, str] = {}
@@ -6533,7 +6701,24 @@ def _publish_from_cli(args: argparse.Namespace) -> dict[str, Any]:
             ) in _structured_candidate_refs(target, content):
                 if record_id is None:
                     continue
-                if inputs.get(referenced_path) != referenced_hash:
+                expected_file_hash = inputs.get(referenced_path)
+                if expected_file_hash is None:
+                    continue
+                try:
+                    referenced_content = _read_project_regular(root, referenced_path)
+                except OSError:
+                    continue
+                if sha256_bytes(referenced_content) != expected_file_hash:
+                    continue
+                if referenced_hash != expected_file_hash:
+                    continue
+                try:
+                    _record_digests(
+                        referenced_content,
+                        referenced_path,
+                        [record_id],
+                    )
+                except (UnicodeError, ValueError):
                     continue
                 auto_collected.setdefault(referenced_path, set()).add(record_id)
         for path, selectors in auto_collected.items():
@@ -7727,12 +7912,13 @@ def _stage_jsonl_records(
 def _m2_screenplay_index_evidence(
     root: Path,
     group: Iterable[tuple[str, dict[str, Any], list[str]]],
-) -> tuple[tuple[str, dict[str, str]] | None, list[str]]:
+) -> tuple[tuple[str, str, dict[str, str]] | None, list[str]]:
     relative, issues = _accepted_stage_file(group, "/screenplay-index.jsonl")
     if relative is None:
         return None, issues
     try:
-        records = _jsonl_records(_project_path(root, relative).read_bytes(), relative)
+        content = _project_path(root, relative).read_bytes()
+        records = _jsonl_records(content, relative)
     except (OSError, UnicodeError, ValueError) as error:
         return None, [f"invalid accepted screenplay index: {error}"]
     hashes: dict[str, str] = {}
@@ -7746,19 +7932,19 @@ def _m2_screenplay_index_evidence(
         if block_id in hashes:
             issues.append(f"accepted screenplay index has duplicate block_id: {block_id}")
             continue
-        hashes[block_id] = sha256_bytes(_canonical_record_bytes(record))
+        hashes[block_id] = _record_digest(relative, record)
     if not hashes:
         issues.append("accepted screenplay index contains no block records")
-    return ((relative, hashes) if not issues else None), issues
+    return ((relative, sha256_bytes(content), hashes) if not issues else None), issues
 
 
 def _exact_screenplay_ref(
     reference: Any,
-    evidence: tuple[str, Mapping[str, str]] | None,
+    evidence: tuple[str, str, Mapping[str, str]] | None,
 ) -> bool:
     if not isinstance(reference, dict) or evidence is None:
         return False
-    relative, hashes = evidence
+    relative, file_hash, hashes = evidence
     record_id = reference.get("record_id")
     digest = reference.get("hash")
     artifact = reference.get("artifact")
@@ -7770,7 +7956,8 @@ def _exact_screenplay_ref(
         reference.get("owner") == "short-drama-write"
         and normalized_artifact == relative
         and isinstance(record_id, str)
-        and hashes.get(record_id) == digest
+        and record_id in hashes
+        and digest == file_hash
     )
 
 
@@ -7964,7 +8151,7 @@ def _m3_asset_consumption_issues(
     root: Path,
     group: Iterable[tuple[str, dict[str, Any], list[str]]],
     m2_bindings: Mapping[str, Mapping[str, Any]],
-    screenplay_index: tuple[str, Mapping[str, str]] | None = None,
+    screenplay_index: tuple[str, str, Mapping[str, str]] | None = None,
 ) -> list[str]:
     group = list(group)
     occurrences, occurrence_issues = _stage_jsonl_records(
@@ -8000,7 +8187,7 @@ def _m3_asset_consumption_issues(
         if not _exact_screenplay_ref(source_ref, screenplay_index):
             issues.append(f"M3 occurrence needs exact screenplay source_ref: {occurrence_id}")
         source_blocks = occurrence.get("source_blocks")
-        screenplay_hashes = screenplay_index[1] if screenplay_index is not None else {}
+        screenplay_hashes = screenplay_index[2] if screenplay_index is not None else {}
         source_record_id = _ref_record_id(source_ref)
         if (
             not isinstance(source_blocks, list)
@@ -8514,11 +8701,6 @@ def _fixed_stage_acceptance_issues(
     episode = _episode_from_targets(target_paths)
     if episode is None:
         return None
-    suffixes = {
-        "/".join(PurePosixPath(path).parts[2:])
-        for path in target_paths
-        if len(PurePosixPath(path).parts) >= 3
-    }
     required = {
         "short-drama-assets": {
             "assets/occurrences.jsonl",
@@ -8541,14 +8723,44 @@ def _fixed_stage_acceptance_issues(
             "storyboard/video-prompts.md",
         },
     }
-    if owner not in required or not required[owner] <= suffixes:
+    if owner not in required:
         return None
 
     prefixes = [
         f"{root_name}/{episode}"
         for root_name in (CANONICAL_ROOTS["episodes"], LEGACY_ROOTS["episodes"])
     ]
-    m2 = _flow_artifacts(state, owner="short-drama-write", prefixes=prefixes)
+    raw_artifacts = state.get("artifacts")
+    effective_state = dict(state)
+    effective_state["artifacts"] = _effective_lifecycle_records(
+        root,
+        raw_artifacts if isinstance(raw_artifacts, dict) else {},
+    )
+    accepted_stage = [
+        item
+        for item in _flow_artifacts(
+            effective_state, owner=owner, prefixes=prefixes
+        )
+        if item[0] != artifact_id
+        and item[1].get("build_state") == "materialized"
+        and item[1].get("creator_acceptance") == "accepted"
+    ]
+    candidate_group = [
+        *accepted_stage,
+        *_synthetic_accepted_group(artifact_id, owner, target_paths),
+    ]
+    suffixes = {
+        "/".join(PurePosixPath(path).parts[2:])
+        for _, _, paths in candidate_group
+        for path in paths
+        if len(PurePosixPath(path).parts) >= 3
+    }
+    if not required[owner] <= suffixes:
+        return None
+
+    m2 = _flow_artifacts(
+        effective_state, owner="short-drama-write", prefixes=prefixes
+    )
     m2_targets: set[str] = set()
     m2_records: dict[str, dict[str, str]] = {}
     for _candidate_id, record, _paths in m2:
@@ -8568,9 +8780,6 @@ def _fixed_stage_acceptance_issues(
     if m2_issues:
         return "BLK-M2-ASSET-REF", m2_issues
     m2_bindings = _m2_generation_binding_map(root, m2_targets)
-    candidate_group = _synthetic_accepted_group(
-        artifact_id, owner, target_paths
-    )
 
     if owner == "short-drama-assets":
         screenplay_index, screenplay_issues = _m2_screenplay_index_evidence(root, m2)
@@ -8591,7 +8800,7 @@ def _fixed_stage_acceptance_issues(
         return ("BLK-M4B-ASSET-CONSUME", issues) if issues else None
 
     storyboard = _flow_artifacts(
-        state, owner="short-drama-storyboard", prefixes=prefixes
+        effective_state, owner="short-drama-storyboard", prefixes=prefixes
     )
     storyboard_issues, signatures = _m4b_asset_consumption_issues(
         root, storyboard, m2_bindings

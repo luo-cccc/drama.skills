@@ -131,6 +131,12 @@ license: MIT
 
 发布派生 Markdown 时，工具会核对同目录结构化源的当前 hash、每条记录 ID 和
 `generic_prompt` 的有序正文；旧缓存、漏记录或自由改写直接报 `BLK-DERIVED-MARKDOWN`。
+`canonical-prompt-library.md` 不需要手写，使用确定性投影：
+
+```text
+python scripts/prompt_compile.py --fragments canonical-fragments.jsonl \
+  --render-library --output canonical-prompt-library.md
+```
 
 跨文件发布遵循主技能的提交与恢复流程；不得以半成品覆盖已接受版本。
 M1.5b 必须在剧本之前接受。M4a 的角色板、场景板、道具/载具/效果板和状态变体

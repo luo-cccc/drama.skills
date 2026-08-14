@@ -143,7 +143,9 @@ Every cross-artifact pointer uses one shape; stage-specific aliases such as
   exact co-published groups without rewriting mutually bound bytes.
 - `record_id` selects a stable JSONL/Markdown record; `field` is an RFC 6901-style
   pointer inside that record. File-level refs may omit both. Field-only JSON refs
-  may omit `record_id`.
+  may omit `record_id`. The canonical `hash` remains the file hash even when a
+  record is selected; record digests used to narrow staleness are stored in the
+  lifecycle registry or in an explicit schema field such as `record_hash`.
 - `role`, `access`, or `expected_value` may extend a ref at the consuming layer;
   they never rename the five canonical keys.
 - Template placeholders may use `<sha256>`; published refs use 64 lowercase hex.

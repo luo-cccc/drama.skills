@@ -30,7 +30,8 @@ if sys.version_info < MINIMUM_PYTHON:
         )
     )
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
+BLOCK_RECORD_HASH_VERSION = "screenplay-block-v1"
 
 
 def _reject_json_constant(value: str) -> Any:
@@ -702,6 +703,7 @@ def _public_block(block: dict[str, Any], source_ref: dict[str, str]) -> dict[str
     return {
         "record_type": "block",
         "schema_version": SCHEMA_VERSION,
+        "record_hash_version": BLOCK_RECORD_HASH_VERSION,
         **{key: value for key, value in block.items() if key not in omitted},
         "source_ref": source_ref,
     }

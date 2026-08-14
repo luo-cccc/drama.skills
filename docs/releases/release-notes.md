@@ -5,6 +5,15 @@
 - 套件升级到 0.5.1，契约升级到 `1.3.1-draft`，固定流程升级到 pipeline 2.0.1。
 - `package` 现在硬性要求本集 M2–M6 全部完成；不完整资产消费或未通过审查不再能生成正式交付包。
 - M1 按 `creative-brief.md`、`story-engine.md`、`episode-map.jsonl` 三项逐一判断，不再由任意单个开发产物代替。
+- M3 剧本引用统一使用 index 文件 hash 与 block ID，发布、接受和 pipeline 不再要求互相冲突的
+  两种 hash；分拆发布的 occurrences、decisions、continuity 可在同一批次完成完整门禁。
+- 未改动的剧本 block 在其它段落修订或位置移动后保持有效，显著缩小下游重新发布范围。
+- 自动记录绑定只在 selector 唯一解析时收窄范围，否则安全退回整文件绑定；手工指定的 selector
+  仍严格校验，避免静默绑定错误记录。
+- `accept-batch` 可按依赖关系多轮推进反向文件名链；`decide --force` 保留旧证据并生成带审计
+  关系的新决定，避免决定文件被覆盖后触发整条生产链 stale。
+- 发布器支持直接读取已在目标位置的候选文件；M1.5a 接受明确为空的可选特征集合；标准提示
+  片段库新增确定性导出能力，减少手工 Markdown 格式错误。
 - `canonical-prompt-library.md`、`image-prompts.md`、`keyframe-prompts.md` 和 `video-prompts.md`
   发布时核对结构化源 hash、记录身份和编译文本，派生缓存不能再自由漂移。
 - generation clip 的 planned boundary 改为完整五槽位结构；continuation 必须绑定上一片段的
@@ -13,7 +22,6 @@
   artifact 会作为已在 manifest 中结算，不再让 pipeline 永久停在 M7。
 - 新增端到端工作流与数据流文档及仓库文档导航，统一说明长篇输入、M0-M7 生产/消费、
   结构化权威与 Markdown 投影、长 shot 的 15 秒拆分、失效传播和交付包内容。
-- Python 测试增至 187 项。
 
 ### 2026-08-14 — 0.5.0
 

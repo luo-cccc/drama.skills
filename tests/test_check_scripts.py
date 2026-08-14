@@ -23,6 +23,7 @@ CONTAINER_CHECK = REPO_ROOT / "skills/short-drama-video-prompts/scripts/containe
 GENERATION_CLIP_CHECK = REPO_ROOT / "skills/short-drama-video-prompts/scripts/generation_clip_check.py"
 VOICE_SHEET_CHECK = REPO_ROOT / "skills/short-drama-write/scripts/voice_sheet_check.py"
 SCREENPLAY_INDEX = REPO_ROOT / "skills/short-drama-write/scripts/screenplay_index.py"
+PROJECT_TOOL = REPO_ROOT / "skills/short-drama/scripts/project_tool.py"
 
 
 def _load_module(path: Path, name: str):
@@ -41,6 +42,7 @@ container = _load_module(CONTAINER_CHECK, "container_check_under_test")
 generation_clip = _load_module(GENERATION_CLIP_CHECK, "generation_clip_check_under_test")
 voice = _load_module(VOICE_SHEET_CHECK, "voice_sheet_check_under_test")
 indexer = _load_module(SCREENPLAY_INDEX, "screenplay_index_under_test")
+project_tool = _load_module(PROJECT_TOOL, "project_tool_check_scripts_test")
 
 
 def _finding_codes(result: dict) -> list[str]:
@@ -305,6 +307,55 @@ class ScreenplayIndexTests(unittest.TestCase):
             meta = records[0]
             self.assertEqual(meta["record_type"], "screenplay_index_meta")
             self.assertEqual(meta["source_ref"]["hash"], result["source_sha256"])
+
+    def test_unchanged_block_keeps_record_digest_across_unrelated_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            previous_source = directory / "screenplay-v1.md"
+            current_source = directory / "screenplay-v2.md"
+            previous_index = directory / "screenplay-index-v1.jsonl"
+            current_index = directory / "screenplay-index-v2.jsonl"
+            previous_source.write_text(
+                "## EP001-SC001 内 · 客厅 · 夜\n\n他推开门。\n",
+                encoding="utf-8",
+            )
+            current_source.write_text(
+                "## EP001-SC001 内 · 客厅 · 夜\n\n风吹窗帘。\n\n他推开门。\n",
+                encoding="utf-8",
+            )
+            source_ref = "剧集/EP001/screenplay.md"
+            indexer.build_index(previous_source, previous_index, source_ref=source_ref)
+            indexer.build_index(
+                current_source,
+                current_index,
+                previous_index_path=previous_index,
+                previous_source_path=previous_source,
+                source_ref=source_ref,
+            )
+            previous_records = [
+                json.loads(line)
+                for line in previous_index.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            unchanged = next(
+                record
+                for record in previous_records
+                if record.get("record_type") == "block"
+                and record.get("kind") == "action"
+            )
+            selector = unchanged["block_id"]
+            old_digest = project_tool._record_digests(
+                previous_index.read_bytes(),
+                "剧集/EP001/screenplay-index.jsonl",
+                [selector],
+            )[selector]
+            new_digest = project_tool._record_digests(
+                current_index.read_bytes(),
+                "剧集/EP001/screenplay-index.jsonl",
+                [selector],
+            )[selector]
+            self.assertEqual(old_digest, new_digest)
+            self.assertNotEqual(previous_index.read_bytes(), current_index.read_bytes())
 
 
 class StrictJsonInputTests(unittest.TestCase):

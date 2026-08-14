@@ -50,7 +50,7 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 ```
 
-当前 Python 测试共 187 项。Windows 按设计跳过 6 项依赖 POSIX 安全目录描述符的
+当前 Python 测试共 196 项。Windows 按设计跳过 6 项依赖 POSIX 安全目录描述符的
 `ProjectStore` 用例；真实 HTTP handler、会话、Cookie、Host/Origin、安全响应头和 PUT
 路由测试仍会在 Windows 执行。前端测试使用 Node 标准库，无 npm 依赖。
 

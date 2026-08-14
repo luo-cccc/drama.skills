@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -57,6 +58,7 @@ class AssetConsumptionTests(unittest.TestCase):
         }
         self.screenplay_index = (
             "剧集/EP001/screenplay-index.jsonl",
+            "f" * 64,
             {"BLK-1": "1" * 64},
         )
 
@@ -134,7 +136,7 @@ class AssetConsumptionTests(unittest.TestCase):
             "owner": "short-drama-write",
             "artifact": self.screenplay_index[0],
             "record_id": block_id,
-            "hash": self.screenplay_index[1][block_id],
+            "hash": self.screenplay_index[1],
         }
 
     def test_m3_requires_one_resolved_decision_per_occurrence(self) -> None:
@@ -449,8 +451,8 @@ class AssetConsumptionTests(unittest.TestCase):
         )
         self.assertEqual(evidence_issues, [])
         self.assertEqual(
-            live_evidence[1]["BLK-LIVE"] if live_evidence else None,
-            tool.sha256_bytes(tool._canonical_record_bytes(block)),
+            live_evidence[2]["BLK-LIVE"] if live_evidence else None,
+            tool._record_digest("剧集/EP001/screenplay-index.jsonl", block),
         )
         occurrence = {
             "occurrence_id": "OCC-1",
@@ -485,6 +487,53 @@ class AssetConsumptionTests(unittest.TestCase):
         self.assertTrue(any("exact screenplay source_ref" in issue for issue in issues))
         self.assertTrue(any("invalid screenplay source_blocks" in issue for issue in issues))
         self.assertTrue(any("stale screenplay cause_ref" in issue for issue in issues))
+
+    def test_acceptance_gate_combines_split_stage_artifacts(self) -> None:
+        paths = {
+            "occurrences": "剧集/EP001/assets/occurrences.jsonl",
+            "decisions": "剧集/EP001/assets/decisions.jsonl",
+            "continuity": "剧集/EP001/assets/continuity.jsonl",
+        }
+        artifacts = {
+            "EP001:occurrences": {
+                "owner": "short-drama-assets",
+                "build_state": "materialized",
+                "creator_acceptance": "accepted",
+                "accepted_targets": {paths["occurrences"]: "1" * 64},
+            },
+            "EP001:decisions": {
+                "owner": "short-drama-assets",
+                "build_state": "materialized",
+                "creator_acceptance": "accepted",
+                "accepted_targets": {paths["decisions"]: "2" * 64},
+            },
+        }
+        state = {"artifacts": artifacts}
+
+        def stage_issues(_root, group, _bindings, _screenplay_index):
+            combined = {
+                path
+                for _, _, target_paths in group
+                for path in target_paths
+            }
+            self.assertEqual(combined, set(paths.values()))
+            return ["combined-stage-check-ran"]
+
+        with (
+            mock.patch.object(tool, "_effective_lifecycle_records", return_value=artifacts),
+            mock.patch.object(tool, "_m2_generation_binding_issues", return_value=[]),
+            mock.patch.object(tool, "_m2_generation_binding_map", return_value={}),
+            mock.patch.object(tool, "_m2_screenplay_index_evidence", return_value=(None, [])),
+            mock.patch.object(tool, "_m3_asset_consumption_issues", side_effect=stage_issues),
+        ):
+            result = tool._fixed_stage_acceptance_issues(
+                self.root,
+                state,
+                artifact_id="EP001:continuity",
+                owner="short-drama-assets",
+                target_paths={paths["continuity"]: "3" * 64},
+            )
+        self.assertEqual(result, ("BLK-M3-ASSETS", ["combined-stage-check-ran"]))
 
     def test_stage_profiles_and_fragment_fingerprints_are_exact(self) -> None:
         shot = {"shot_id": "SHOT-1", "generation_asset_bindings": [{**self._binding(), "fragment_refs": self._fragments()}]}
