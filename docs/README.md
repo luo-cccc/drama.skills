@@ -9,6 +9,7 @@
 |---|---|---|
 | 第一次了解套件 | [项目 README](../README.md) | [端到端工作流与数据流](../skills/short-drama/references/workflow-dataflow.md) |
 | 开始或继续一个项目（先显式调用技能） | [执行速查](../skills/short-drama/references/execution-quickstart.md) | [固定生产流程](../skills/short-drama/references/production-pipeline.md) |
+| 启动或排查 Dashboard | [Dashboard 启动](../skills/short-drama/references/lifecycle-commands.md#dashboard-启动) | [仓库维护手册](maintenance.md#安全回归范围) |
 | 理解长篇、单集与 15 秒视频调用的关系 | [端到端工作流与数据流](../skills/short-drama/references/workflow-dataflow.md) | [固定生产流程](../skills/short-drama/references/production-pipeline.md) |
 | 查命令、接受、审查、打包 | [生命周期命令](../skills/short-drama/references/lifecycle-commands.md) | [创作者决定、预览与修订](../skills/short-drama/references/creator-workflow.md) |
 | 查谁拥有事实、谁能消费、何时 stale | [契约与所有权](../skills/short-drama/references/contract-and-ownership.md) | 各技能的 `references/stage-contract.md` |
@@ -26,6 +27,7 @@
 | M0-M7 顺序、入口和出门条件 | `production-pipeline.md` |
 | 跨阶段输入、输出和消费关系 | `workflow-dataflow.md` |
 | 命令参数与生命周期行为 | `project_tool.py --help`、`lifecycle-commands.md` |
+| Dashboard 启动、平台边界与保存语义 | `lifecycle-commands.md` 的“Dashboard 启动”章节 |
 | 文件所有权、引用、过期和隐私 | `contract-and-ownership.md` |
 | 创作者决定、预览链与修订边界 | `creator-workflow.md` |
 | 规则 ID 与负责技能 | `knowhow-index.md`、各技能 `stage-contract.md` |

@@ -1,6 +1,25 @@
 # 发布说明
 
-### 2026-08-15 — 0.6.3
+### 2026-08-15 — 0.7.0
+
+- Dashboard 新增 Windows 10/11 x64 原生安全后端，保持原启动命令、前端 API、Cookie、
+  Host/Origin 校验和既有响应字段不变；Windows 自动选择新后端，项目发现、状态、文本编辑和
+  媒体 Range 预览均可用。正文已提交但生命周期状态更新失败时，保存响应会附加
+  `stateWarning: "lifecycle_update_failed"`，前端保留新版本并提示运行项目预检。
+- Windows 文件访问从盘符卷根开始使用 `NtCreateFile(RootDirectory=...)` 逐级固定句柄并拒绝
+  全部 reparse point；仅允许本地固定 NTFS，UNC、设备路径、映射网络盘、ReFS/exFAT、
+  OneDrive 占位、junction 和 symlink 均 fail closed。
+- Windows 保存通过固定父句柄创建和刷新短名临时文件，持有目标首字节锁并执行两次目标
+  SHA-256 复核，再使用 `NtSetInformationFile(FileRenameInformationEx)` 相对父句柄原子替换；
+  媒体流持有已验证句柄到响应结束，临时文件失败清理也通过句柄完成。
+- Dashboard 与 Windows CLI 共用 `.short-drama/locks/transaction.lock`。新增跨进程保存冲突、
+  CLI 锁互斥、父目录/项目根/媒体置换、写入与替换失败、句柄关闭及不支持卷/API 启动拒绝测试；
+  Windows 不再跳过 `ProjectStore` 行为测试。
+- 文档将 Dashboard 启动、平台边界、原子保存和部分成功语义收拢到生命周期命令章节；README、
+  文档导航与维护手册只保留入口和回归摘要，并移除暗示 Windows 路径版或只读降级的旧说法。
+- 套件升级到 0.7.0；契约保持 `1.3.3-draft`、提示配方保持 `1.3.2-draft`，pipeline 保持 2.0.2。
+
+#### 0.6.3
 
 - 完整 Location 的方向基准现在明确 Front 与左右手性；正交板和俯视板使用独立的 16:9
   规划画幅与安全边距，不再继承项目成片比例或依赖提示词口头约定。

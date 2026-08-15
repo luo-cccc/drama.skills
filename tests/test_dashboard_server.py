@@ -3,9 +3,8 @@
 `dashboard_server.py` is the security-sensitive surface of the suite (session
 auth, Host/Origin checks, path confinement, compare-and-swap saves). It had no
 execution coverage beyond `compileall`. These tests exercise the pure helpers
-on every platform; the parts that need a live project go behind
-`SECURE_DIR_FD` so they still run on macOS/Linux CI while the unsupported
-Windows platform is skipped rather than failing.
+on every platform; the parts that need a live project run through the
+platform-selected secure store on macOS, Linux, and Windows.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ import threading
 import unittest
 from http import HTTPStatus
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD_SERVER = REPO_ROOT / "skills/short-drama/scripts/dashboard_server.py"
@@ -244,7 +244,6 @@ class HTTPHandlerTests(unittest.TestCase):
         )
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST, body)
 
-@unittest.skipUnless(dashboard.SECURE_DIR_FD, "dashboard requires POSIX directory descriptors")
 class ProjectStoreTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -261,8 +260,8 @@ class ProjectStoreTests(unittest.TestCase):
             aspect_ratio="9:16",
             prompt_language="en",
         )
-        (self.project / "README.md").write_text("第一版\n", encoding="utf-8")
-        (self.project / "notes.json").write_text("{}\n", encoding="utf-8")
+        (self.project / "README.md").write_bytes("第一版\n".encode("utf-8"))
+        (self.project / "notes.json").write_bytes(b"{}\n")
         self.store = dashboard.ProjectStore(self.workspace, self.project_tool)
 
     def tearDown(self) -> None:
@@ -279,6 +278,9 @@ class ProjectStoreTests(unittest.TestCase):
     def test_discover_finds_the_project(self) -> None:
         self._project_id()
 
+    def test_platform_store_implements_public_type(self) -> None:
+        self.assertIsInstance(self.store, dashboard.ProjectStore)
+
     def test_read_text_returns_content_and_version(self) -> None:
         data = self.store.read_text(self._project_id(), "README.md")
         self.assertEqual(data["content"], "第一版\n")
@@ -292,6 +294,26 @@ class ProjectStoreTests(unittest.TestCase):
             project_id, "README.md", "第二版\n", before["version"]
         )
         self.assertTrue(result["saved"])
+        self.assertEqual(
+            self.store.read_text(project_id, "README.md")["content"], "第二版\n"
+        )
+
+    @unittest.skipUnless(
+        dashboard.SECURE_DIR_FD, "POSIX lifecycle warning contract"
+    )
+    def test_posix_state_update_failure_returns_saved_warning(self) -> None:
+        project_id = self._project_id()
+        before = self.store.read_text(project_id, "README.md")
+        with mock.patch.object(
+            self.project_tool,
+            "_record_working_text_edit_at",
+            side_effect=OSError("injected state failure"),
+        ):
+            result = self.store.write_text(
+                project_id, "README.md", "第二版\n", before["version"]
+            )
+        self.assertTrue(result["saved"])
+        self.assertEqual(result["stateWarning"], "lifecycle_update_failed")
         self.assertEqual(
             self.store.read_text(project_id, "README.md")["content"], "第二版\n"
         )

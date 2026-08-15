@@ -13,6 +13,7 @@
 | 技能文件集合与 SHA-256（文本规范化 LF，二进制按原始字节） | `skills/short-drama/suite-manifest.json` |
 | 子技能绑定的 core 清单 | 各子技能 `suite-ref.json` |
 | 测试矩阵 | `.github/workflows/suite.yml` |
+| Dashboard 平台边界与保存语义 | `skills/short-drama/references/lifecycle-commands.md` 的“Dashboard 启动”章节 |
 | 用户可见变更 | `docs/releases/release-notes.md` 与 README 的“最新更新” |
 | 文档入口与权威路由 | `docs/README.md`；发布套件内的数据流入口为 `workflow-dataflow.md` |
 | 模型侧技能上下文预算 | `tools/skill_perf_audit.py` 与 `tests/test_skill_perf_audit.py` |
@@ -53,9 +54,17 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 ```
 
-测试数量随功能演进，不在维护文档中手工维护；以 CI 与 `unittest discover` 输出为准。Windows
-按设计跳过依赖 POSIX 安全目录描述符的 `ProjectStore` 用例；真实 HTTP handler、会话、Cookie、Host/Origin、安全响应头和 PUT
-路由测试仍会在 Windows 执行。前端测试使用 Node 标准库，无 npm 依赖。
+测试数量随功能演进，不在维护文档中手工维护；以 CI 与 `unittest discover` 输出为准。
+Dashboard 的 `ProjectStore` 行为测试在 POSIX 与 Windows 后端都执行；Windows 还覆盖
+junction/symlink、嵌套 reparse、ADS/设备名、父目录和项目根置换、媒体句柄、跨进程保存冲突、
+CLI 锁互斥、长文件名、重复操作句柄计数、临时文件清理及不支持卷/API 的启动拒绝。前端测试
+使用 Node 标准库，无 npm 依赖。
+
+Windows 后端专项可单独运行：
+
+```powershell
+python -m unittest tests.test_windows_dashboard -v
+```
 
 ## 安全回归范围
 
@@ -70,11 +79,18 @@ $env:PYTHONIOENCODING = "utf-8"
 - `--max-clip-seconds` 只接受正有限秒数；默认 15，并由 generation clip 校验器执行。
 - POSIX 发布与恢复通过固定目录描述符和 `O_NOFOLLOW` 替换/删除文件；Windows 读取在
   打开句柄后复核文件身份，检测路径置换。
+- Windows Dashboard 只允许普通盘符下的本地固定 NTFS，从卷根逐级拒绝全部 reparse point；
+  UNC、设备命名空间、网络盘、非 NTFS 和 OneDrive 占位必须在绑定或访问前失败关闭。
+- Windows Dashboard 保存必须持有固定父句柄、项目事务锁和目标首字节锁，临时写入刷新后
+  再次核对目标 hash，再以父句柄相对原子替换；失败路径不得遗留临时文件或覆盖普通外部编辑。
+- 正文替换成功后，生命周期状态写入失败不得伪装成保存失败；响应必须返回新版本和
+  `stateWarning`，前端清除已提交内容的 dirty 状态并提示运行项目预检。
 - Dashboard 的 API 必须要求一次性会话，限制回环 Host/Origin，并持续发送 CSP、
   `X-Frame-Options: DENY` 和 `X-Content-Type-Options: nosniff`。
 
 这些行为由 `tests/test_security_regressions.py`、`tests/test_dashboard_server.py`、
-`tests/test_check_scripts.py` 和 `tests/test_dashboard_app.js` 覆盖。
+`tests/test_windows_dashboard.py`、`tests/test_check_scripts.py` 和
+`tests/test_dashboard_app.js` 覆盖。
 
 ## 清单与版本
 
@@ -110,3 +126,4 @@ Node 20 前端检查及套件全量哈希验证；独立 lint job 使用固定�
 4. README“最新更新”只保留最新日期块；完整历史只写入 release notes。
 5. 清单已在最后一次 `skills/**` 修改之后生成。
 6. 工作区不包含应忽略的生成缓存或临时项目产物。
+7. `rg` 未发现已经失效的 Dashboard 平台限制、Windows 降级或测试跳过说明。

@@ -615,184 +615,6 @@ def _live_hash_at(directory_fd: int, relative: str) -> str | None:
     return sha256_bytes(content)
 
 
-def _project_layout_at(directory_fd: int, state: Mapping[str, Any]) -> dict[str, Any]:
-    recorded = state.get("project_layout_mode", "auto")
-    if recorded not in LAYOUT_MODES:
-        recorded = "auto"
-    canonical_roles: set[str] = set()
-    legacy_roles: set[str] = set()
-    nonstandard_roots: list[str] = []
-    unsafe_roots: list[str] = []
-    with os.scandir(directory_fd) as iterator:
-        entries = list(iterator)
-    for entry in entries:
-        role = _root_role(entry.name)
-        if role not in LAYOUT_PINNING_ROLES:
-            continue
-        if entry.is_symlink():
-            unsafe_roots.append(entry.name)
-            continue
-        if not entry.is_dir(follow_symlinks=False):
-            continue
-        child_fd = os.open(
-            entry.name,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-            dir_fd=directory_fd,
-        )
-        try:
-            with os.scandir(child_fd) as children:
-                has_content = next(children, None) is not None
-        finally:
-            os.close(child_fd)
-        if not has_content:
-            continue
-        if entry.name == CANONICAL_ROOTS[role]:
-            canonical_roles.add(role)
-        elif entry.name == LEGACY_ROOTS[role]:
-            legacy_roles.add(role)
-        else:
-            nonstandard_roots.append(entry.name)
-    detected_modes = {
-        mode
-        for mode, roles in (
-            ("canonical", canonical_roles),
-            ("legacy", legacy_roles),
-        )
-        if roles
-    }
-    conflict = bool(nonstandard_roots or unsafe_roots) or len(detected_modes) > 1 or (
-        recorded in {"canonical", "legacy"}
-        and detected_modes
-        and detected_modes != {recorded}
-    )
-    if conflict:
-        mode = "mixed"
-    elif recorded in {"canonical", "legacy"}:
-        mode = recorded
-    elif detected_modes:
-        mode = next(iter(detected_modes))
-    else:
-        mode = "canonical"
-    roots = CANONICAL_ROOTS if mode != "legacy" else LEGACY_ROOTS
-    return {
-        "mode": mode,
-        "pinned": recorded != "auto" or bool(detected_modes),
-        "roots": dict(roots),
-        # The two lists below are the only answer to "why is my project mixed",
-        # so they stay; the per-family role sets and the raw recorded mode had
-        # no reader anywhere and shipped to the browser on every status refresh.
-        "nonstandardRoots": sorted(nonstandard_roots),
-        "unsafeRoots": sorted(unsafe_roots),
-    }
-
-
-def _effective_lifecycle_records_at(
-    directory_fd: int, artifacts: Mapping[str, Any]
-) -> dict[str, dict[str, Any]]:
-    effective = {
-        str(artifact_id): dict(record)
-        for artifact_id, record in artifacts.items()
-        if isinstance(artifact_id, str) and isinstance(record, dict)
-    }
-    direct_stale: list[tuple[str, dict[str, str | None]]] = []
-    for artifact_id, record in effective.items():
-        changed: dict[str, str | None] = {}
-        for relative, expected in _current_record_targets(record).items():
-            try:
-                actual = _live_hash_at(directory_fd, _relative_path(relative))
-            except (OSError, ValueError, TransactionConflictError):
-                actual = None
-            if actual != expected:
-                changed[relative] = actual
-        if changed:
-            direct_stale.append((artifact_id, changed))
-    stale_ids = {artifact_id for artifact_id, _ in direct_stale}
-    for artifact_id, record in effective.items():
-        if artifact_id in stale_ids or record.get("creator_acceptance") != "accepted":
-            continue
-        try:
-            inputs = _input_bindings(record, "accepted_inputs")
-            record_inputs = _input_record_bindings(record, "accepted_input_records")
-            unknown_records = set(record_inputs) - set(inputs)
-            if unknown_records:
-                raise ValueError("record binding has no matching input")
-            for relative, expected in inputs.items():
-                normalized = _relative_path(relative)
-                if normalized in record_inputs:
-                    content = _read_regular_at(directory_fd, normalized)
-                    live_records = _record_digests(
-                        content, normalized, record_inputs[normalized]
-                    )
-                    if any(
-                        live_records.get(selector) != digest
-                        for selector, digest in record_inputs[normalized].items()
-                    ):
-                        raise ValueError("accepted input record changed")
-                elif _live_hash_at(directory_fd, normalized) != expected:
-                    raise ValueError("accepted input changed")
-        except (OSError, ValueError, UnicodeError, TransactionConflictError):
-            targets = record.get("accepted_targets")
-            direct_stale.append(
-                (
-                    artifact_id,
-                    {path: None for path in targets} if isinstance(targets, dict) else {},
-                )
-            )
-            stale_ids.add(artifact_id)
-    stale_changes = _stale_lifecycle_changes()
-    for artifact_id, changed in direct_stale:
-        effective[artifact_id] = apply_lifecycle_changes(
-            effective[artifact_id], stale_changes
-        )
-        downstream = _downstream_stale_changes(
-            {"artifacts": artifacts},
-            publishing_artifact=artifact_id,
-            candidate_targets=changed,
-        )
-        for dependent in downstream:
-            if dependent in effective:
-                effective[dependent] = apply_lifecycle_changes(
-                    effective[dependent], stale_changes
-                )
-    return effective
-
-
-def _transaction_status_at(transaction_fd: int) -> str:
-    try:
-        manifest = os.stat("manifest.json", dir_fd=transaction_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return "incomplete"
-    if not stat.S_ISREG(manifest.st_mode):
-        return "corrupt"
-    try:
-        content = _read_regular_at(transaction_fd, "wal.jsonl")
-    except FileNotFoundError:
-        content = b""
-    except (OSError, TransactionError):
-        return "corrupt"
-    events: list[dict[str, Any]] = []
-    try:
-        for line in content.decode("utf-8").splitlines():
-            if line.strip():
-                event = _json_loads(line)
-                if not isinstance(event, dict) or not isinstance(event.get("event"), str):
-                    return "corrupt"
-                events.append(event)
-    except (UnicodeError, json.JSONDecodeError):
-        return "corrupt"
-    names = {event.get("event") for event in events}
-    if "BLOCKED" in names:
-        return "blocked"
-    if "ROLLED_BACK" in names or "STATE_APPLIED" in names:
-        return "complete"
-    try:
-        marker = os.stat("COMMIT", dir_fd=transaction_fd, follow_symlinks=False)
-        committed = stat.S_ISREG(marker.st_mode)
-    except FileNotFoundError:
-        committed = False
-    return "needs_rollforward" if committed else "needs_rollback"
-
-
 def _fresh_baselines(effective_artifacts: Mapping[str, Any]) -> list[str]:
     """Owner skills whose artifact type already has a non-provisional fresh verdict.
 
@@ -881,28 +703,335 @@ def _build_project_status(
     }
 
 
-def _project_status_from_root(
-    root: Path, *, project_root: str | None = None
+def _reader_hash(
+    read_regular: Callable[[str], bytes], relative: str
+) -> str | None:
+    try:
+        return sha256_bytes(read_regular(relative))
+    except FileNotFoundError:
+        return ABSENT_HASH
+
+
+def _effective_lifecycle_records_from_reader(
+    read_regular: Callable[[str], bytes], artifacts: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Overlay live drift using a caller-supplied, root-confined reader."""
+
+    effective = {
+        str(artifact_id): dict(record)
+        for artifact_id, record in artifacts.items()
+        if isinstance(artifact_id, str) and isinstance(record, dict)
+    }
+    direct_stale: list[tuple[str, dict[str, str | None]]] = []
+    for artifact_id, record in effective.items():
+        changed: dict[str, str | None] = {}
+        for relative, expected in _current_record_targets(record).items():
+            try:
+                normalized = _relative_path(relative)
+                actual = _reader_hash(read_regular, normalized)
+            except (OSError, ValueError, TransactionConflictError):
+                actual = None
+            if actual != expected:
+                changed[relative] = actual
+        if changed:
+            direct_stale.append((artifact_id, changed))
+    stale_ids = {artifact_id for artifact_id, _ in direct_stale}
+    for artifact_id, record in effective.items():
+        if artifact_id in stale_ids or record.get("creator_acceptance") != "accepted":
+            continue
+        try:
+            inputs = _input_bindings(record, "accepted_inputs")
+            record_inputs = _input_record_bindings(record, "accepted_input_records")
+            unknown_records = set(record_inputs) - set(inputs)
+            if unknown_records:
+                raise ValueError("record binding has no matching input")
+            for relative, expected in inputs.items():
+                normalized = _relative_path(relative)
+                if normalized in record_inputs:
+                    content = read_regular(normalized)
+                    live_records = _record_digests(
+                        content, normalized, record_inputs[normalized]
+                    )
+                    if any(
+                        live_records.get(selector) != digest
+                        for selector, digest in record_inputs[normalized].items()
+                    ):
+                        raise ValueError("accepted input record changed")
+                elif _reader_hash(read_regular, normalized) != expected:
+                    raise ValueError("accepted input changed")
+        except (OSError, ValueError, UnicodeError, TransactionConflictError):
+            targets = record.get("accepted_targets")
+            direct_stale.append(
+                (
+                    artifact_id,
+                    {path: None for path in targets} if isinstance(targets, dict) else {},
+                )
+            )
+            stale_ids.add(artifact_id)
+    stale_changes = _stale_lifecycle_changes()
+    for artifact_id, changed in direct_stale:
+        effective[artifact_id] = apply_lifecycle_changes(
+            effective[artifact_id], stale_changes
+        )
+        downstream = _downstream_stale_changes(
+            {"artifacts": artifacts},
+            publishing_artifact=artifact_id,
+            candidate_targets=changed,
+        )
+        for dependent in downstream:
+            if dependent in effective:
+                effective[dependent] = apply_lifecycle_changes(
+                    effective[dependent], stale_changes
+                )
+    return effective
+
+
+def _project_layout_from_reader(
+    state: Mapping[str, Any],
+    scan_directory: Callable[[str], list[Mapping[str, Any]]],
 ) -> dict[str, Any]:
-    project = _json_loads((root / PROJECT_FILE).read_text(encoding="utf-8"))
-    state_path = root / STATE_FILE
-    state = _json_loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
-    raw_artifacts = state.get("artifacts")
-    artifacts: dict[str, Any] = raw_artifacts if isinstance(raw_artifacts, dict) else {}
-    transaction_counts: dict[str, int] = {}
-    transactions = root / ".short-drama/transactions"
-    if transactions.is_dir():
-        for transaction in transactions.iterdir():
-            if not transaction.is_dir():
+    recorded = state.get("project_layout_mode", "auto")
+    if recorded not in LAYOUT_MODES:
+        recorded = "auto"
+    canonical_roles: set[str] = set()
+    legacy_roles: set[str] = set()
+    nonstandard_roots: list[str] = []
+    unsafe_roots: list[str] = []
+    for entry in scan_directory("."):
+        name = entry.get("name")
+        if not isinstance(name, str):
+            continue
+        role = _root_role(name)
+        if role not in LAYOUT_PINNING_ROLES:
+            continue
+        if entry.get("reparse"):
+            unsafe_roots.append(name)
+            continue
+        if entry.get("kind") != "directory":
+            continue
+        try:
+            has_content = bool(scan_directory(name))
+        except (FileNotFoundError, OSError, ValueError):
+            unsafe_roots.append(name)
+            continue
+        if not has_content:
+            continue
+        if name == CANONICAL_ROOTS[role]:
+            canonical_roles.add(role)
+        elif name == LEGACY_ROOTS[role]:
+            legacy_roles.add(role)
+        else:
+            nonstandard_roots.append(name)
+    detected_modes = {
+        mode
+        for mode, roles in (
+            ("canonical", canonical_roles),
+            ("legacy", legacy_roles),
+        )
+        if roles
+    }
+    conflict = bool(nonstandard_roots or unsafe_roots) or len(detected_modes) > 1 or (
+        recorded in {"canonical", "legacy"}
+        and detected_modes
+        and detected_modes != {recorded}
+    )
+    if conflict:
+        mode = "mixed"
+    elif recorded in {"canonical", "legacy"}:
+        mode = recorded
+    elif detected_modes:
+        mode = next(iter(detected_modes))
+    else:
+        mode = "canonical"
+    roots = CANONICAL_ROOTS if mode != "legacy" else LEGACY_ROOTS
+    return {
+        "mode": mode,
+        "pinned": recorded != "auto" or bool(detected_modes),
+        "roots": dict(roots),
+        "nonstandardRoots": sorted(nonstandard_roots),
+        "unsafeRoots": sorted(unsafe_roots),
+    }
+
+
+def _transaction_status_from_reader(
+    transaction: str,
+    read_regular: Callable[[str], bytes],
+    scan_directory: Callable[[str], list[Mapping[str, Any]]],
+) -> str:
+    try:
+        entries = {
+            str(entry.get("name")): entry for entry in scan_directory(transaction)
+        }
+    except (FileNotFoundError, OSError, ValueError):
+        return "corrupt"
+    manifest = entries.get("manifest.json")
+    if manifest is None:
+        return "incomplete"
+    if manifest.get("kind") != "file" or manifest.get("reparse"):
+        return "corrupt"
+    wal_path = f"{transaction}/wal.jsonl"
+    try:
+        content = read_regular(wal_path)
+    except FileNotFoundError:
+        content = b""
+    except (OSError, TransactionError):
+        return "corrupt"
+    events: list[dict[str, Any]] = []
+    try:
+        for line in content.decode("utf-8").splitlines():
+            if not line.strip():
                 continue
-            status = _transaction_status(transaction)
-            transaction_counts[status] = transaction_counts.get(status, 0) + 1
+            event = _json_loads(line)
+            if not isinstance(event, dict) or not isinstance(event.get("event"), str):
+                return "corrupt"
+            events.append(event)
+    except (UnicodeError, json.JSONDecodeError):
+        return "corrupt"
+    names = {event.get("event") for event in events}
+    if "BLOCKED" in names:
+        return "blocked"
+    if "ROLLED_BACK" in names or "STATE_APPLIED" in names:
+        return "complete"
+    marker = entries.get("COMMIT")
+    committed = bool(
+        marker is not None
+        and marker.get("kind") == "file"
+        and not marker.get("reparse")
+    )
+    return "needs_rollforward" if committed else "needs_rollback"
+
+
+def project_status_from_reader(
+    read_regular: Callable[[str], bytes],
+    scan_directory: Callable[[str], list[Mapping[str, Any]]],
+    *,
+    project_root: str,
+) -> dict[str, Any]:
+    """Build project status through a storage backend's confined read API."""
+
+    project = _json_loads(read_regular(PROJECT_FILE).decode("utf-8"))
+    if not isinstance(project, dict):
+        raise ValueError("short-drama.json must contain a JSON object")
+    try:
+        state = _json_loads(read_regular(STATE_FILE.as_posix()).decode("utf-8"))
+    except FileNotFoundError:
+        state = {}
+    if not isinstance(state, dict):
+        raise ValueError("project state must contain a JSON object")
+    artifacts_value = state.get("artifacts")
+    artifacts = artifacts_value if isinstance(artifacts_value, dict) else {}
+    transaction_counts: dict[str, int] = {}
+    try:
+        transactions = scan_directory(".short-drama/transactions")
+    except FileNotFoundError:
+        transactions = []
+    except (OSError, ValueError):
+        transactions = [
+            {"name": "<corrupt>", "kind": "directory", "reparse": True}
+        ]
+    for entry in transactions:
+        name = entry.get("name")
+        if not isinstance(name, str):
+            continue
+        if entry.get("reparse"):
+            status = "corrupt"
+        elif entry.get("kind") != "directory":
+            continue
+        else:
+            status = _transaction_status_from_reader(
+                f".short-drama/transactions/{name}",
+                read_regular,
+                scan_directory,
+            )
+        transaction_counts[status] = transaction_counts.get(status, 0) + 1
     return _build_project_status(
         project=project,
         state=state,
-        effective_artifacts=_effective_lifecycle_records(root, artifacts),
+        effective_artifacts=_effective_lifecycle_records_from_reader(
+            read_regular, artifacts
+        ),
         transaction_counts=transaction_counts,
-        layout=_project_layout_from_root(root),
+        layout=_project_layout_from_reader(state, scan_directory),
+        project_root=project_root,
+    )
+
+
+def project_path_lifecycle_from_reader(
+    read_regular: Callable[[str], bytes], relative: str | Path
+) -> dict[str, Any] | None:
+    """Return one path's lifecycle through a confined storage reader."""
+
+    normalized = _relative_path(relative)
+    try:
+        state = _json_loads(read_regular(STATE_FILE.as_posix()).decode("utf-8"))
+    except FileNotFoundError:
+        return None
+    if not isinstance(state, dict):
+        raise ValueError("project state must contain a JSON object")
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return None
+    effective = _effective_lifecycle_records_from_reader(read_regular, artifacts)
+    matches = [
+        (artifact_id, record)
+        for artifact_id, record in effective.items()
+        if any(
+            isinstance(record.get(key), dict) and normalized in record[key]
+            for key in ("candidate_targets", "accepted_targets")
+        )
+    ]
+    if len(matches) != 1:
+        return None
+    artifact_id, record = matches[0]
+    return {
+        "artifactId": artifact_id,
+        **{
+            axis: record.get(axis, LIFECYCLE_DEFAULTS[axis])
+            for axis in LIFECYCLE_STATES
+        },
+    }
+
+
+def _project_status_from_root(
+    root: Path, *, project_root: str | None = None
+) -> dict[str, Any]:
+    def read_regular(relative: str) -> bytes:
+        try:
+            return _read_project_regular(root, relative)
+        except ValueError as exc:
+            if isinstance(exc.__cause__, FileNotFoundError):
+                raise FileNotFoundError(relative) from exc
+            raise
+
+    def scan_directory(relative: str) -> list[Mapping[str, Any]]:
+        directory = root if relative == "." else _project_path(root, relative)
+        entries: list[Mapping[str, Any]] = []
+        with os.scandir(directory) as iterator:
+            for entry in iterator:
+                try:
+                    details = entry.stat(follow_symlinks=False)
+                except OSError:
+                    entries.append(
+                        {"name": entry.name, "kind": "other", "reparse": True}
+                    )
+                    continue
+                attributes = getattr(details, "st_file_attributes", 0)
+                reparse = entry.is_symlink() or bool(attributes & 0x400)
+                kind = (
+                    "directory"
+                    if stat.S_ISDIR(details.st_mode)
+                    else "file"
+                    if stat.S_ISREG(details.st_mode)
+                    else "other"
+                )
+                entries.append(
+                    {"name": entry.name, "kind": kind, "reparse": reparse}
+                )
+        return entries
+
+    return project_status_from_reader(
+        read_regular,
+        scan_directory,
         project_root=project_root or str(root),
     )
 
@@ -973,70 +1102,34 @@ def project_status_at(
     details = os.fstat(directory_fd)
     if not stat.S_ISDIR(details.st_mode):
         raise ValueError("directory_fd must reference a directory")
-    # `_read_state` already refuses a non-object state on the path lane; match
-    # it here. Valid JSON that is not an object otherwise reaches
-    # `_build_project_status` and dies on `.get`, which is an AttributeError
-    # no caller expects — the dashboard drops the connection without a status
-    # line rather than reporting a malformed project.
-    project = _json_loads(_read_regular_at(directory_fd, PROJECT_FILE).decode("utf-8"))
-    if not isinstance(project, dict):
-        raise ValueError("short-drama.json must contain a JSON object")
-    try:
-        state = _json_loads(_read_regular_at(directory_fd, STATE_FILE).decode("utf-8"))
-    except FileNotFoundError:
-        state = {}
-    if not isinstance(state, dict):
-        raise ValueError("project state must contain a JSON object")
-    raw_artifacts = state.get("artifacts")
-    artifacts: dict[str, Any] = raw_artifacts if isinstance(raw_artifacts, dict) else {}
-    transaction_counts: dict[str, int] = {}
-    try:
-        transactions_fd = _open_directory_at(
-            directory_fd, (".short-drama", "transactions")
-        )
-    except FileNotFoundError:
-        transactions_fd = -1
-    except OSError:
-        transaction_counts["corrupt"] = 1
-        transactions_fd = -1
-    if transactions_fd >= 0:
+    def read_regular(relative: str) -> bytes:
+        return _read_regular_at(directory_fd, relative)
+
+    def scan_directory(relative: str) -> list[Mapping[str, Any]]:
+        pure = PurePosixPath(relative)
+        target_fd = _open_directory_at(directory_fd, pure.parts if relative != "." else ())
         try:
-            with os.scandir(transactions_fd) as iterator:
-                entries = list(iterator)
-            for entry in entries:
-                if entry.is_symlink():
-                    transaction_counts["corrupt"] = (
-                        transaction_counts.get("corrupt", 0) + 1
+            entries: list[Mapping[str, Any]] = []
+            with os.scandir(target_fd) as iterator:
+                for entry in iterator:
+                    reparse = entry.is_symlink()
+                    kind = (
+                        "directory"
+                        if entry.is_dir(follow_symlinks=False)
+                        else "file"
+                        if entry.is_file(follow_symlinks=False)
+                        else "other"
                     )
-                    continue
-                if not entry.is_dir(follow_symlinks=False):
-                    continue
-                try:
-                    transaction_fd = os.open(
-                        entry.name,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                        dir_fd=transactions_fd,
+                    entries.append(
+                        {"name": entry.name, "kind": kind, "reparse": reparse}
                     )
-                except OSError:
-                    transaction_counts["corrupt"] = (
-                        transaction_counts.get("corrupt", 0) + 1
-                    )
-                    continue
-                try:
-                    status = _transaction_status_at(transaction_fd)
-                finally:
-                    os.close(transaction_fd)
-                transaction_counts[status] = transaction_counts.get(status, 0) + 1
+            return entries
         finally:
-            os.close(transactions_fd)
-    return _build_project_status(
-        project=project,
-        state=state,
-        effective_artifacts=_effective_lifecycle_records_at(
-            directory_fd, artifacts
-        ),
-        transaction_counts=transaction_counts,
-        layout=_project_layout_at(directory_fd, state),
+            os.close(target_fd)
+
+    return project_status_from_reader(
+        read_regular,
+        scan_directory,
         project_root=project_root or "pinned-project",
     )
 
@@ -1059,6 +1152,14 @@ def _relative_path(value: str | Path, *, allow_operations: bool = False) -> str:
     if not allow_operations and pure.parts[0].casefold() == ".short-drama":
         raise ValueError("operational state cannot be a publication target")
     return relative
+
+
+def normalize_project_relative_path(
+    value: str | Path, *, allow_operations: bool = False
+) -> str:
+    """Return the suite's canonical, portable project-relative path spelling."""
+
+    return _relative_path(value, allow_operations=allow_operations)
 
 
 def _portable_path_key(relative: str) -> str:
@@ -3723,30 +3824,9 @@ def project_path_lifecycle_at(
 ) -> dict[str, Any] | None:
     """Return lifecycle evidence relative to a pinned project directory."""
 
-    normalized = _relative_path(relative)
-    try:
-        state = _json_loads(_read_regular_at(directory_fd, STATE_FILE).decode("utf-8"))
-    except FileNotFoundError:
-        return None
-    artifacts = state.get("artifacts")
-    if not isinstance(artifacts, dict):
-        return None
-    effective = _effective_lifecycle_records_at(directory_fd, artifacts)
-    matches = [
-        (artifact_id, record)
-        for artifact_id, record in effective.items()
-        if any(
-            isinstance(record.get(key), dict) and normalized in record[key]
-            for key in ("candidate_targets", "accepted_targets")
-        )
-    ]
-    if len(matches) != 1:
-        return None
-    artifact_id, record = matches[0]
-    return {
-        "artifactId": artifact_id,
-        **{axis: record.get(axis, LIFECYCLE_DEFAULTS[axis]) for axis in LIFECYCLE_STATES},
-    }
+    return project_path_lifecycle_from_reader(
+        lambda path: _read_regular_at(directory_fd, path), relative
+    )
 
 
 def _open_or_create_directory_at(parent_fd: int, name: str) -> int:
@@ -3857,6 +3937,63 @@ def _atomic_json_at(
         os.close(parent_fd)
 
 
+def update_working_text_state(
+    state: Mapping[str, Any], relative: str | Path, digest: str
+) -> dict[str, Any] | None:
+    """Return lifecycle state updated for one externally edited working file."""
+
+    normalized = _relative_path(relative)
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError("working text digest must be a SHA-256 hash")
+    artifacts_value = state.get("artifacts")
+    artifacts = (
+        {
+            artifact_id: dict(record) if isinstance(record, dict) else record
+            for artifact_id, record in artifacts_value.items()
+            if isinstance(artifact_id, str)
+        }
+        if isinstance(artifacts_value, dict)
+        else None
+    )
+    if not isinstance(artifacts, dict):
+        return None
+    owners = [
+        artifact_id
+        for artifact_id, record in artifacts.items()
+        if isinstance(artifact_id, str)
+        and isinstance(record, dict)
+        and any(
+            isinstance(record.get(key), dict) and normalized in record[key]
+            for key in ("candidate_targets", "accepted_targets")
+        )
+    ]
+    if len(owners) > 1:
+        raise TransactionConflictError(
+            f"project path has multiple lifecycle owners: {normalized}"
+        )
+    if not owners:
+        return None
+    updated_state = dict(state)
+    updated_state["artifacts"] = artifacts
+    artifact_id = owners[0]
+    record = artifacts[artifact_id]
+    updated = apply_lifecycle_changes(record, _stale_lifecycle_changes())
+    updated.pop("creator_decision", None)
+    updated.pop("review_evidence", None)
+    artifacts[artifact_id] = updated
+    for dependent, changes in _downstream_stale_changes(
+        updated_state,
+        publishing_artifact=artifact_id,
+        candidate_targets={normalized: digest},
+    ).items():
+        existing = artifacts.get(dependent)
+        if isinstance(existing, dict):
+            artifacts[dependent] = apply_lifecycle_changes(existing, changes)
+    updated_state["updated_at"] = utc_now()
+    updated_state["last_action"] = "working_text_edited"
+    return updated_state
+
+
 def _record_working_text_edit_at(
     directory_fd: int, relative: str, digest: str
 ) -> None:
@@ -3864,43 +4001,13 @@ def _record_working_text_edit_at(
         state = _json_loads(_read_regular_at(directory_fd, STATE_FILE).decode("utf-8"))
     except FileNotFoundError:
         return
-    artifacts = state.get("artifacts")
-    if not isinstance(artifacts, dict):
-        return
-    owners = [
-        artifact_id
-        for artifact_id, record in artifacts.items()
-        if isinstance(artifact_id, str)
-        and isinstance(record, dict)
-        and any(
-            isinstance(record.get(key), dict) and relative in record[key]
-            for key in ("candidate_targets", "accepted_targets")
-        )
-    ]
-    if len(owners) > 1:
-        raise TransactionConflictError(
-            f"project path has multiple lifecycle owners: {relative}"
-        )
-    if not owners:
-        return
-    artifact_id = owners[0]
-    record = artifacts[artifact_id]
-    assert isinstance(record, dict)
-    updated = apply_lifecycle_changes(record, _stale_lifecycle_changes())
-    updated.pop("creator_decision", None)
-    updated.pop("review_evidence", None)
-    artifacts[artifact_id] = updated
-    for dependent, changes in _downstream_stale_changes(
-        state,
-        publishing_artifact=artifact_id,
-        candidate_targets={relative: digest},
-    ).items():
-        existing = artifacts.get(dependent)
-        if isinstance(existing, dict):
-            artifacts[dependent] = apply_lifecycle_changes(existing, changes)
-    state["updated_at"] = utc_now()
-    state["last_action"] = "working_text_edited"
-    _atomic_json_at(directory_fd, STATE_FILE, state)
+    if not isinstance(state, dict):
+        raise ValueError("project state must contain a JSON object")
+    updated = update_working_text_state(state, relative, digest)
+    if updated is not None:
+        _atomic_json_at(directory_fd, STATE_FILE, updated)
+
+
 @contextlib.contextmanager
 def coordinated_project_text_edit_at(
     directory_fd: int, relative: str | Path, expected_hash: str
@@ -3915,12 +4022,18 @@ def coordinated_project_text_edit_at(
     with _transaction_lock_at(directory_fd):
         if _live_hash_at(directory_fd, normalized) != expected_hash:
             raise StaleReadSetError("file changed since it was opened")
-        yield
+        outcome: dict[str, str] = {}
+        yield outcome
         actual = _live_hash_at(directory_fd, normalized)
         if actual is None:
             raise TransactionConflictError("edited project file disappeared")
         if actual != expected_hash:
-            _record_working_text_edit_at(directory_fd, normalized, actual)
+            try:
+                _record_working_text_edit_at(directory_fd, normalized, actual)
+            except Exception:
+                # The content commit is authoritative; metadata repair is a
+                # follow-up warning instead of a false save failure.
+                outcome["state_warning"] = "lifecycle_update_failed"
 
 
 def _normalize_artifact_ref(
@@ -7863,7 +7976,7 @@ def build_review_bundle(
 
 
 PIPELINE_VERSION = "2.0.2"
-SUITE_VERSION = "0.6.3"
+SUITE_VERSION = "0.7.0"
 CONTRACT_VERSION = "1.3.3-draft"
 PRODUCTION_OBSERVATIONS_FILE = ".short-drama/evidence/production-observations.jsonl"
 PRODUCTION_FLOW_DEFAULTS: dict[str, Any] = {

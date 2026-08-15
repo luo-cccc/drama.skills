@@ -11,18 +11,17 @@
 
 ## 最新更新
 
-### 2026-08-15 — 0.6.3
+### 2026-08-15 — 0.7.0
 
-- 新增场景正交板和严格 90 度俯视板。两种板式都绑定已接受的空间模型，不创建复合 View，
-  并把确认、推定和未知结构逐项保留为可追溯证据。
-- 完整 Location 现在明确 Front 与左右手性；场景板使用独立 16:9 规划画幅和安全边距，避免
-  继承竖屏成片比例或发生左右镜像。大型场景的提示词按证据状态与类别汇总，审计覆盖不减少。
-- 结构化引用现在必须解析到真实、唯一、同 owner 且 hash 一致的已接受来源；不存在的记录、
-  字段、伪 Markdown selector 和无 provider 引用会在发布时直接拒绝。
-- 可选的外部结果观察门禁能在进入分镜前确认每条资产图规格确实经过授权观察；套件仍不调用
-  媒体服务，观察也不等于质量验收。提示词语言同时与项目和标准片段保持一致。
-- 套件升级到 0.6.3、产物契约升级到 `1.3.3-draft`、提示配方升级到
-  `1.3.2-draft`；pipeline 升级到 2.0.2，提示词编译输出格式升级到 1.2。
+- Dashboard 新增 Windows 10/11 x64 原生安全后端；项目发现、状态、文本保存和媒体 Range
+  预览沿用现有 API 与启动命令，Windows 自动选择句柄后端。
+- Windows 工作区只接受普通盘符路径下的本地固定 NTFS。UNC、映射网络盘、ReFS/exFAT、
+  junction、symlink、OneDrive 占位和任意嵌套 reparse point 都会在绑定或访问前拒绝。
+- Windows 读写从卷根开始逐级固定句柄；保存使用父句柄相对短名临时文件、目标字节锁、
+  二次 SHA-256 复核和原子替换，并与 CLI 共用项目事务锁。路径重命名或替代目录不会把
+  已固定请求导向项目外；正文已提交但状态更新失败时会保留新版本并提示运行项目预检。
+- 套件升级到 0.7.0；产物契约保持 `1.3.3-draft`，提示配方保持 `1.3.2-draft`，pipeline
+  保持 2.0.2。
 
 完整历史保留在 [发布说明](docs/releases/release-notes.md)。
 
@@ -51,7 +50,7 @@ video.skills/
 │   ├── short-drama/              # 主技能（core）
 │   │   ├── SKILL.md
 │   │   ├── suite-manifest.json   # 套件清单：全部文件的 SHA-256
-│   │   ├── scripts/              # project_tool.py / suite_verify.py / dashboard_server.py
+│   │   ├── scripts/              # project_tool.py / suite_verify.py / dashboard_server.py / windows_secure_fs.py
 │   │   ├── references/           # 执行速查、固定生产流程、批量生产、生命周期命令等
 │   │   └── assets/
 │   ├── short-drama-novel-analyze/
@@ -85,7 +84,7 @@ video.skills/
   M0-M7 生产/消费关系、结构化权威、15 秒 generation clip、审查与交付闭环。
 - [执行速查](skills/short-drama/references/execution-quickstart.md)：例行命令和高频错误。
 - [固定生产流程](skills/short-drama/references/production-pipeline.md)：里程碑顺序与强制门禁。
-- [生命周期命令](skills/short-drama/references/lifecycle-commands.md)：命令参数、接受、审查、打包和恢复。
+- [生命周期命令](skills/short-drama/references/lifecycle-commands.md)：命令参数、Dashboard、接受、审查、打包和恢复。
 - [契约与所有权](skills/short-drama/references/contract-and-ownership.md)：权威、引用、stale、隐私与恢复。
 
 ## 安装
@@ -142,8 +141,9 @@ python3 tools/update_suite_manifest.py
 ## 测试与持续集成
 
 仓库自带 stdlib-only Python 测试套件；Dashboard 前端另有一组无 npm
-依赖的 Node 测试。Windows 上部分 Dashboard POSIX-dirfd `ProjectStore` 用例按设计跳过，
-真实 HTTP handler 测试仍在 Windows 执行：
+依赖的 Node 测试。Dashboard 的同一组 `ProjectStore` 行为测试会在 POSIX 和 Windows
+安全后端上执行；`test_windows_dashboard.py` 另覆盖句柄固定、reparse、并发、失败清理和
+生命周期告警：
 
 - **一致性测试**（`test_noise_consistency.py`）：噪声集一致性、清单与磁盘内容一致性、
   清单重建幂等、套件校验与 9 个技能契约；
@@ -163,7 +163,11 @@ python3 tools/update_suite_manifest.py
   编译顺序、幂等、片段篡改、重排与输出篡改。
 - **Dashboard 测试**（`test_dashboard_server.py`）：回环 / Host / Origin 判定、字节范围
   解析、路径遍历与百分号编码拒绝、真实会话 / Cookie / API 前缀、安全响应头与 PUT 路由，
-  以及项目发现 / 读 / 写 / 版本冲突 / 只读保护 / 非法 JSON 拒绝；
+  以及跨平台项目发现 / 读 / 写 / 版本冲突 / 只读保护 / 非法 JSON 拒绝；
+- **Windows Dashboard 测试**（`test_windows_dashboard.py`）：NTFS 与 API 启动门禁、
+  junction/symlink/嵌套 reparse、ADS/设备名、固定父目录和项目根、媒体 Range、目标字节锁、
+  长文件名、跨进程 Dashboard/CLI 互斥、句柄计数、临时文件清理，以及正文成功但生命周期
+  状态更新失败时的 `stateWarning`；
 - **安全回归测试**（`test_security_regressions.py`）：可移植路径碰撞、事务 manifest
   碰撞、路径置换检测、严格 JSON、画幅比例和版本一致性；
 - **多集整稿测试**（`test_episode_intake.py`）：自动/手工边界、中文集号、CRLF 字节切片、
@@ -197,7 +201,12 @@ CI（`.github/workflows/suite.yml`）在 Ubuntu / macOS / Windows × Python 3.10
   `generation-clips.jsonl` 连续覆盖，不需要为了模型上限改写剪辑边界。
 - POSIX 发布和恢复使用固定目录描述符与 `O_NOFOLLOW`；Windows CLI 在读取候选源时复核
   打开句柄的文件身份。未知外部编辑仍保留冲突副本并阻断事务。
-- Dashboard 继续只在 macOS/Linux 启动，不提供不安全的 Windows 路径降级；Windows 使用 CLI。
+- Dashboard 在 macOS/Linux 使用 `dir_fd + O_NOFOLLOW`，在 Windows 10/11 x64 使用
+  `NtCreateFile`/`NtSetInformationFile` 固定句柄后端。Windows 仅接受普通盘符下的本地固定
+  NTFS；网络盘、非 NTFS、OneDrive 占位和全部 reparse point 均 fail closed。
+  实现细节与启动命令只在
+  [生命周期命令的 Dashboard 章节](skills/short-drama/references/lifecycle-commands.md#dashboard-启动)
+  维护。
 
 详细命令约束见 [项目命令与审核记录](skills/short-drama/references/lifecycle-commands.md)，
 维护和回归要求见 [仓库维护手册](docs/maintenance.md)。
@@ -248,7 +257,8 @@ Markdown 会直接拒绝发布。新版剧本索引使用
 
 实际耗时不写入文档承诺；以任务胶囊字符数、模型读取范围、工具调用轮次和回归审计结果衡量。
 
-创作台 Dashboard 仅支持 macOS/Linux；Windows 上使用下面的 CLI 工作流。
+创作台 Dashboard 支持 macOS/Linux，以及本地固定 NTFS 上的 Windows 10/11 x64；不符合
+Windows 工作区约束时会拒绝启动，不提供路径版或只读降级。
 
 ### 常用命令速查
 

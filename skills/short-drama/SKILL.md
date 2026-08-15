@@ -90,7 +90,9 @@ M0 → M1 → M1.5a → M1.5b → M2 → M3 → M4a → M4b → M5 → M6 → M7
 
 用户明确要求打开创作台时，按
 [lifecycle-commands.md](references/lifecycle-commands.md#dashboard-启动) 启动并返回完整回环地址。
-Dashboard 仅支持安全目录文件描述符可用的平台；Windows 使用 CLI。
+Dashboard 支持 macOS/Linux 与本地固定 NTFS 上的 Windows 10/11 x64；Windows 的网络盘、
+非 NTFS、OneDrive 占位和 reparse point 必须拒绝，不得降级。
+具体启动命令、会话安全、保存冲突与状态告警只在上述生命周期文档维护。
 
 ## 边界
 

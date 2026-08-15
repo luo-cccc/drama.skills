@@ -865,13 +865,21 @@ async function save() {
     state.version = result.version;
     state.selected.size = new TextEncoder().encode(snapshot.content).length;
     setDirty(!savedContentIsCurrent(snapshot.content, $("editor").value));
-    setMessage(`已保存 · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, "success");
+    const lifecycleWarning = result.stateWarning === "lifecycle_update_failed";
+    setMessage(
+      lifecycleWarning
+        ? "正文已保存，但状态记录更新失败；请运行项目预检。"
+        : `已保存 · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      lifecycleWarning ? "warning" : "success",
+    );
     try {
       const refreshed = await api(`/api/status?project=${encodeURIComponent(snapshot.project)}`);
       if (state.project !== snapshot.project) return;
       state.status = refreshed;
       renderWorkspace();
-    } catch (_error) { setMessage(statusRefreshFailureMessage(), "warning"); }
+    } catch (_error) {
+      if (!lifecycleWarning) setMessage(statusRefreshFailureMessage(), "warning");
+    }
   } catch (error) {
     if (
       snapshot.sequence === state.saveSequence &&

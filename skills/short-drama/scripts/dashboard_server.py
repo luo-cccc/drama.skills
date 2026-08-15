@@ -105,6 +105,26 @@ def load_project_tool(root: Path) -> ModuleType:
     return module
 
 
+def load_windows_secure_fs(root: Path) -> ModuleType:
+    """Load the sibling Windows handle backend without requiring installation."""
+
+    root = root.resolve()
+    installed_script = root / "scripts/windows_secure_fs.py"
+    repository_script = root / "skills/short-drama/scripts/windows_secure_fs.py"
+    script = installed_script if installed_script.is_file() else repository_script
+    spec = importlib.util.spec_from_file_location("dashboard_windows_secure_fs", script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load Windows dashboard backend: {script}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Windows dashboard backend is unavailable: {exc}"
+        ) from exc
+    return module
+
+
 def _version(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -154,6 +174,41 @@ def _open_parent_directory_at(
 
 
 class ProjectStore:
+    """Platform-selecting base class for Dashboard storage backends."""
+
+    def __new__(
+        cls,
+        workspace: Path,
+        project_tool: ModuleType,
+        *_backend_args: Any,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        max_nodes: int = DEFAULT_MAX_NODES,
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+        max_media_bytes: int = DEFAULT_MAX_MEDIA_BYTES,
+    ) -> Any:
+        if cls is not ProjectStore:
+            return super().__new__(cls)
+        if os.name == "nt":
+            return super().__new__(_WindowsProjectStore)
+        return super().__new__(_PosixProjectStore)
+
+    @staticmethod
+    def _safe_relative(relative: str) -> PurePosixPath:
+        raw = unquote(relative).replace("\\", "/")
+        pure = PurePosixPath(raw)
+        if (
+            not raw
+            or not pure.parts
+            or pure.is_absolute()
+            or any(part in ("", ".", "..") for part in pure.parts)
+        ):
+            raise DashboardError(
+                HTTPStatus.BAD_REQUEST, "unsafe project-relative path"
+            )
+        return pure
+
+
+class _PosixProjectStore(ProjectStore):
     def __init__(
         self,
         workspace: Path,
@@ -368,19 +423,6 @@ class ProjectStore:
             return self.project_tool.project_status_at(
                 directory_fd, project_root=str(root)
             )
-
-    @staticmethod
-    def _safe_relative(relative: str) -> PurePosixPath:
-        raw = unquote(relative).replace("\\", "/")
-        pure = PurePosixPath(raw)
-        if (
-            not raw
-            or not pure.parts
-            or pure.is_absolute()
-            or any(part in ("", ".", "..") for part in pure.parts)
-        ):
-            raise DashboardError(HTTPStatus.BAD_REQUEST, "unsafe project-relative path")
-        return pure
 
     def _is_protected(self, relative: PurePosixPath) -> bool:
         return bool(
@@ -607,12 +649,12 @@ class ProjectStore:
     @contextlib.contextmanager
     def _coordinated_edit(
         self, directory_fd: int, relative: PurePosixPath, expected_version: str
-    ) -> Iterator[None]:
+    ) -> Iterator[dict[str, str]]:
         try:
             with self.project_tool.coordinated_project_text_edit_at(
                 directory_fd, relative.as_posix(), expected_version
-            ):
-                yield
+            ) as outcome:
+                yield outcome
         except Exception as exc:
             if exc.__class__.__name__ in {
                 "StaleReadSetError",
@@ -652,10 +694,13 @@ class ProjectStore:
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "content exceeds file limit"
             )
         _validate_structured_text(pure, content)
+        edit_outcome: dict[str, str]
         with (
             self._write_lock,
             self._pinned_project(project_id) as (directory_fd, _root),
-            self._coordinated_edit(directory_fd, pure, expected_version),
+            self._coordinated_edit(
+                directory_fd, pure, expected_version
+            ) as edit_outcome,
         ):
             # Two layers, each earning its place. `_write_lock` serializes this
             # process's own threads, including the lock-directory setup that
@@ -687,7 +732,14 @@ class ProjectStore:
                 raise DashboardError(
                     HTTPStatus.FORBIDDEN, "text file cannot be replaced safely"
                 ) from exc
-        return {"path": pure.as_posix(), "version": _version(encoded), "saved": True}
+        result = {
+            "path": pure.as_posix(),
+            "version": _version(encoded),
+            "saved": True,
+        }
+        if edit_outcome.get("state_warning"):
+            result["stateWarning"] = edit_outcome["state_warning"]
+        return result
 
     def media_info(self, project_id: str, relative: str) -> dict[str, Any]:
         pure = self._safe_relative(relative)
@@ -746,6 +798,486 @@ class ProjectStore:
         except Exception:
             os.close(descriptor)
             raise
+
+
+class _WindowsProjectStore(ProjectStore):
+    def __init__(
+        self,
+        workspace: Path,
+        project_tool: ModuleType,
+        windows_fs: ModuleType | None = None,
+        *,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        max_nodes: int = DEFAULT_MAX_NODES,
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+        max_media_bytes: int = DEFAULT_MAX_MEDIA_BYTES,
+    ) -> None:
+        if windows_fs is None:
+            windows_fs = load_windows_secure_fs(SKILL_ROOT)
+        required_contract = (
+            "normalize_project_relative_path",
+            "project_status_from_reader",
+            "is_protected_project_text",
+            "project_path_lifecycle_from_reader",
+            "update_working_text_state",
+        )
+        missing = [
+            name
+            for name in required_contract
+            if not callable(getattr(project_tool, name, None))
+        ]
+        if missing:
+            raise RuntimeError(
+                "project tool does not support the Windows Dashboard contract: "
+                + ", ".join(missing)
+            )
+        self.project_tool = project_tool
+        self.windows_fs = windows_fs
+        self.max_depth = max_depth
+        self.max_nodes = max_nodes
+        self.max_file_bytes = max_file_bytes
+        self.max_media_bytes = max_media_bytes
+        self.max_request_bytes = (
+            max_file_bytes * MAX_JSON_EXPANSION + REQUEST_OVERHEAD_BYTES
+        )
+        self.workspace = workspace.expanduser().absolute()
+        self._workspace = windows_fs.WindowsDirectory.open_workspace(workspace)
+        self.workspace = self._workspace.display_path
+        self._write_lock = threading.Lock()
+
+    def close(self) -> None:
+        self._workspace.close()
+
+    @staticmethod
+    def _project_id(relative: str) -> str:
+        return hashlib.sha256(relative.encode("utf-8")).hexdigest()[:20]
+
+    def _safe_relative(self, relative: str) -> PurePosixPath:
+        pure = _PosixProjectStore._safe_relative(relative)
+        try:
+            normalized = self.project_tool.normalize_project_relative_path(
+                pure.as_posix(), allow_operations=True
+            )
+        except ValueError as exc:
+            raise DashboardError(
+                HTTPStatus.BAD_REQUEST, "unsafe project-relative path"
+            ) from exc
+        return PurePosixPath(normalized)
+
+    def _is_protected(self, relative: PurePosixPath) -> bool:
+        return bool(
+            self.project_tool.is_protected_project_text(relative.as_posix())
+        )
+
+    @staticmethod
+    def _scan_projection(directory: Any, relative: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": entry.name,
+                "kind": entry.kind,
+                "reparse": entry.reparse,
+            }
+            for entry in directory.scan(relative)
+        ]
+
+    def discover(self) -> tuple[list[dict[str, Any]], list[str]]:
+        projects: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        nodes = 0
+        depth_truncated = False
+        node_truncated = False
+
+        def walk(directory: Any, parts: tuple[str, ...], depth: int) -> None:
+            nonlocal depth_truncated, node_truncated, nodes
+            if nodes >= self.max_nodes:
+                return
+            try:
+                entries = sorted(
+                    directory.scan(), key=lambda item: item.name.casefold()
+                )
+            except OSError as exc:
+                warnings.append(f"无法读取 {'/'.join(parts) or '.'}: {exc}")
+                return
+            for entry in entries:
+                if nodes >= self.max_nodes:
+                    node_truncated = True
+                    return
+                nodes += 1
+                if entry.reparse:
+                    continue
+                if entry.kind == "file" and entry.name == "short-drama.json":
+                    relative = "/".join(parts) or "."
+                    title = "未命名短剧"
+                    try:
+                        manifest = _json_loads(
+                            directory.read_regular(
+                                "short-drama.json", limit=self.max_file_bytes
+                            ).decode("utf-8")
+                        )
+                        candidate = (
+                            manifest.get("title") if isinstance(manifest, dict) else None
+                        )
+                        if isinstance(candidate, str) and candidate.strip():
+                            title = " ".join(candidate.split())[:200]
+                    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+                        pass
+                    projects.append(
+                        {
+                            "id": self._project_id(relative),
+                            "path": relative,
+                            "title": title,
+                        }
+                    )
+                    continue
+                if entry.kind != "directory":
+                    continue
+                if depth >= self.max_depth:
+                    depth_truncated = True
+                    continue
+                try:
+                    child = directory.open_subtree(entry.name)
+                except (OSError, ValueError, self.windows_fs.WindowsFilesystemError):
+                    continue
+                try:
+                    walk(child, (*parts, entry.name), depth + 1)
+                finally:
+                    child.close()
+
+        walk(self._workspace, (), 0)
+        if node_truncated:
+            warnings.append(f"项目发现达到节点上限 {self.max_nodes}，结果已截断")
+        if depth_truncated:
+            warnings.append(f"项目发现达到深度上限 {self.max_depth}，更深目录已截断")
+        return projects, warnings
+
+    @contextlib.contextmanager
+    def _pinned_project(self, project_id: str) -> Iterator[tuple[Any, Path]]:
+        selected = next(
+            (item for item in self.discover()[0] if item["id"] == project_id), None
+        )
+        if selected is None:
+            raise DashboardError(HTTPStatus.NOT_FOUND, "project not found")
+        try:
+            project = self._workspace.open_subtree(selected["path"])
+            project.read_regular("short-drama.json", limit=self.max_file_bytes)
+        except (OSError, ValueError, self.windows_fs.WindowsFilesystemError) as exc:
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "project root cannot be opened safely"
+            ) from exc
+        try:
+            yield project, project.display_path
+        finally:
+            project.close()
+
+    def status(self, project_id: str) -> dict[str, Any]:
+        with self._pinned_project(project_id) as (project, root):
+            return self.project_tool.project_status_from_reader(
+                project.read_regular,
+                lambda relative: self._scan_projection(project, relative),
+                project_root=str(root),
+            )
+
+    def tree(self, project_id: str) -> dict[str, Any]:
+        with self._pinned_project(project_id) as (project, _root):
+            return self._tree_from_root(project)
+
+    def _tree_from_root(self, project: Any) -> dict[str, Any]:
+        nodes = 0
+        warnings: list[str] = []
+        depth_truncated = False
+        node_truncated = False
+        oversized_text = 0
+        oversized_media = 0
+
+        def scan(directory: Any, parts: tuple[str, ...], depth: int) -> list[dict[str, Any]]:
+            nonlocal depth_truncated, node_truncated, nodes
+            nonlocal oversized_media, oversized_text
+            children: list[dict[str, Any]] = []
+            try:
+                entries = sorted(
+                    directory.scan(),
+                    key=lambda item: (
+                        item.kind != "directory",
+                        item.name.casefold(),
+                    ),
+                )
+            except OSError as exc:
+                warnings.append(f"无法读取 {'/'.join(parts) or '.'}: {exc}")
+                return children
+            for entry in entries:
+                if entry.reparse:
+                    continue
+                relative = "/".join((*parts, entry.name))
+                if not parts and entry.name.casefold() == ".short-drama":
+                    continue
+                if nodes >= self.max_nodes:
+                    node_truncated = True
+                    break
+                nodes += 1
+                if entry.kind == "directory":
+                    node: dict[str, Any] = {
+                        "name": entry.name,
+                        "path": relative,
+                        "type": "directory",
+                        "children": [],
+                    }
+                    if depth < self.max_depth:
+                        try:
+                            child = directory.open_subtree(entry.name)
+                        except (
+                            OSError,
+                            ValueError,
+                            self.windows_fs.WindowsFilesystemError,
+                        ):
+                            continue
+                        try:
+                            node["children"] = scan(
+                                child, (*parts, entry.name), depth + 1
+                            )
+                        finally:
+                            child.close()
+                    else:
+                        depth_truncated = True
+                        node["truncated"] = True
+                    children.append(node)
+                    continue
+                if entry.kind != "file":
+                    continue
+                suffix = PurePosixPath(entry.name).suffix.casefold()
+                if suffix not in TEXT_EXTENSIONS and suffix not in MEDIA_EXTENSIONS:
+                    continue
+                limit = (
+                    self.max_file_bytes
+                    if suffix in TEXT_EXTENSIONS
+                    else self.max_media_bytes
+                )
+                if entry.size > limit:
+                    if suffix in TEXT_EXTENSIONS:
+                        oversized_text += 1
+                    else:
+                        oversized_media += 1
+                pure = PurePosixPath(relative)
+                children.append(
+                    {
+                        "name": entry.name,
+                        "path": relative,
+                        "type": "text" if suffix in TEXT_EXTENSIONS else "media",
+                        "size": entry.size,
+                        "oversize": entry.size > limit,
+                        "writable": suffix in TEXT_EXTENSIONS
+                        and not self._is_protected(pure),
+                    }
+                )
+            return children
+
+        tree = scan(project, (), 0)
+        if node_truncated:
+            warnings.append(f"文件树达到节点上限 {self.max_nodes}，结果已截断")
+        if depth_truncated:
+            warnings.append(f"文件树达到深度上限 {self.max_depth}，更深目录已截断")
+        if oversized_text:
+            warnings.append(
+                f"{oversized_text} 个文本文件超过大小上限 {self.max_file_bytes} bytes，内容预览已禁用"
+            )
+        if oversized_media:
+            warnings.append(
+                f"{oversized_media} 个媒体文件超过大小上限 {self.max_media_bytes} bytes，媒体预览已禁用"
+            )
+        return {
+            "tree": tree,
+            "warnings": warnings,
+            "limits": {
+                "depth": self.max_depth,
+                "nodes": self.max_nodes,
+                "fileBytes": self.max_file_bytes,
+                "mediaBytes": self.max_media_bytes,
+            },
+        }
+
+    def read_text(self, project_id: str, relative: str) -> dict[str, Any]:
+        pure = self._safe_relative(relative)
+        if pure.suffix.casefold() not in TEXT_EXTENSIONS:
+            raise DashboardError(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "file type is not editable text"
+            )
+        try:
+            with self._pinned_project(project_id) as (project, _root):
+                data = project.read_regular(
+                    pure.as_posix(), limit=self.max_file_bytes
+                )
+        except ValueError as exc:
+            if "configured limit" in str(exc):
+                raise DashboardError(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "file exceeds preview limit"
+                ) from exc
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "text file cannot be opened safely"
+            ) from exc
+        except (OSError, self.windows_fs.WindowsFilesystemError) as exc:
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "text file cannot be opened safely"
+            ) from exc
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise DashboardError(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "text file must be UTF-8"
+            ) from exc
+        return {
+            "path": pure.as_posix(),
+            "content": content,
+            "version": _version(data),
+            "writable": not self._is_protected(pure),
+        }
+
+    def write_text(
+        self, project_id: str, relative: str, content: Any, expected_version: Any
+    ) -> dict[str, Any]:
+        pure = self._safe_relative(relative)
+        if pure.suffix.casefold() not in TEXT_EXTENSIONS:
+            raise DashboardError(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "file type is not editable text"
+            )
+        if self._is_protected(pure):
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "file is protected and read-only"
+            )
+        if not isinstance(content, str) or not isinstance(expected_version, str):
+            raise DashboardError(
+                HTTPStatus.BAD_REQUEST,
+                "content and expectedVersion are required strings",
+            )
+        if re.fullmatch(r"[0-9a-f]{64}", expected_version) is None:
+            raise DashboardError(
+                HTTPStatus.BAD_REQUEST, "expectedVersion must be a SHA-256 digest"
+            )
+        encoded = content.encode("utf-8")
+        if len(encoded) > self.max_file_bytes:
+            raise DashboardError(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "content exceeds file limit"
+            )
+        _validate_structured_text(pure, content)
+        state_warning: str | None = None
+        try:
+            with (
+                self._write_lock,
+                self._pinned_project(project_id) as (project, _root),
+                project.transaction_lock(),
+            ):
+                current = project.read_regular(
+                    pure.as_posix(), limit=self.max_file_bytes
+                )
+                if _version(current) != expected_version:
+                    raise DashboardError(
+                        HTTPStatus.CONFLICT, "file changed since it was opened"
+                    )
+                digest = project.replace_regular(
+                    pure.as_posix(), encoded, expected_version
+                )
+                try:
+                    try:
+                        state_bytes = project.read_regular(
+                            ".short-drama/state.json"
+                        )
+                    except FileNotFoundError:
+                        state_bytes = None
+                    if state_bytes is not None:
+                        state = _json_loads(state_bytes.decode("utf-8"))
+                        if not isinstance(state, dict):
+                            raise ValueError(
+                                "project state must contain a JSON object"
+                            )
+                        updated = self.project_tool.update_working_text_state(
+                            state, pure.as_posix(), digest
+                        )
+                        if updated is not None:
+                            rendered = (
+                                json.dumps(
+                                    updated,
+                                    ensure_ascii=False,
+                                    indent=2,
+                                    sort_keys=True,
+                                    allow_nan=False,
+                                )
+                                + "\n"
+                            ).encode("utf-8")
+                            project.replace_regular(
+                                ".short-drama/state.json",
+                                rendered,
+                                _version(state_bytes),
+                            )
+                except Exception:
+                    # The edited file is already committed at this point.
+                    state_warning = "lifecycle_update_failed"
+        except DashboardError:
+            raise
+        except FileExistsError as exc:
+            raise DashboardError(
+                HTTPStatus.CONFLICT, "file changed since it was opened"
+            ) from exc
+        except (OSError, ValueError, self.windows_fs.WindowsFilesystemError) as exc:
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "text file cannot be replaced safely"
+            ) from exc
+        result = {"path": pure.as_posix(), "version": digest, "saved": True}
+        if state_warning:
+            result["stateWarning"] = state_warning
+        return result
+
+    def media_info(self, project_id: str, relative: str) -> dict[str, Any]:
+        pure = self._safe_relative(relative)
+        with self._pinned_project(project_id) as (project, _root):
+            handle, content_type, size = self._open_media(project, pure)
+            handle.close()
+            lifecycle = self.project_tool.project_path_lifecycle_from_reader(
+                project.read_regular, pure.as_posix()
+            )
+        result = {
+            "path": pure.as_posix(),
+            "kind": "video" if content_type.startswith("video/") else "image",
+            "contentType": content_type,
+            "size": size,
+            "readOnly": True,
+            "contentUrl": f"/api/media/content?{urlencode({'project': project_id, 'path': pure.as_posix()})}",
+            "status": "ready",
+        }
+        if lifecycle is not None:
+            result["lifecycle"] = lifecycle
+        return result
+
+    def open_media(
+        self, project_id: str, relative: str
+    ) -> tuple[BinaryIO, PurePosixPath, str, int]:
+        pure = self._safe_relative(relative)
+        with self._pinned_project(project_id) as (project, _root):
+            handle, content_type, size = self._open_media(project, pure)
+        return handle, pure, content_type, size
+
+    def _open_media(
+        self, project: Any, pure: PurePosixPath
+    ) -> tuple[BinaryIO, str, int]:
+        content_type = MEDIA_TYPES.get(pure.suffix.casefold())
+        if content_type is None:
+            raise DashboardError(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "unsupported preview media"
+            )
+        try:
+            handle, size = project.open_regular(
+                pure.as_posix(), limit=self.max_media_bytes
+            )
+        except ValueError as exc:
+            if "configured limit" in str(exc):
+                raise DashboardError(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "media exceeds preview limit"
+                ) from exc
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "media file cannot be opened safely"
+            ) from exc
+        except (OSError, self.windows_fs.WindowsFilesystemError) as exc:
+            raise DashboardError(
+                HTTPStatus.FORBIDDEN, "media file cannot be opened safely"
+            ) from exc
+        return handle, content_type, size
 
 
 class DashboardHTTPServer(ThreadingHTTPServer):
@@ -1142,7 +1674,11 @@ def main(argv: list[str] | None = None) -> int:
         help="open the dashboard in the default browser after binding",
     )
     args = parser.parse_args(argv)
-    server = create_server(args.workspace, host=args.host, port=args.port)
+    try:
+        server = create_server(args.workspace, host=args.host, port=args.port)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"Dashboard startup failed: {exc}", file=sys.stderr, flush=True)
+        return 2
     raw_host, port = server.server_address[:2]
     host = raw_host.decode("ascii") if isinstance(raw_host, bytes) else raw_host
     display_host = f"[{host}]" if ":" in host else host

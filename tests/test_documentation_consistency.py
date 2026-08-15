@@ -111,6 +111,36 @@ class DocumentationConsistencyTests(unittest.TestCase):
                     missing.append(f"{skill_dir.name}/references/{reference.name}")
         self.assertEqual(missing, [])
 
+    def test_dashboard_docs_match_the_windows_backend(self) -> None:
+        current_docs = [
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "docs/README.md",
+            REPO_ROOT / "docs/maintenance.md",
+            REPO_ROOT / "skills/short-drama/SKILL.md",
+            REPO_ROOT / "skills/short-drama/references/lifecycle-commands.md",
+        ]
+        obsolete = (
+            "Dashboard 仅支持 macOS/Linux",
+            "Dashboard 继续只在 macOS/Linux",
+            "Windows 使用 CLI",
+            "Windows 按设计跳过",
+            "Windows 上部分 Dashboard POSIX-dirfd",
+        )
+        combined = "\n".join(
+            document.read_text(encoding="utf-8") for document in current_docs
+        )
+        for phrase in obsolete:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, combined)
+        for required in (
+            "Windows 10/11 x64",
+            "本地固定 NTFS",
+            "FileRenameInformationEx",
+            'stateWarning:"lifecycle_update_failed"',
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, combined)
+
 
 if __name__ == "__main__":
     unittest.main()

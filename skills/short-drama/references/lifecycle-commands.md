@@ -70,6 +70,12 @@ project_tool.py review-bundle <project> --episode EP001 --scope story_script --d
 python3 <short-drama-skill-dir>/scripts/dashboard_server.py --workspace <workspace> --port 0 --open
 ```
 
+Windows PowerShell 使用同一入口，例如：
+
+```powershell
+python skills\short-drama\scripts\dashboard_server.py --workspace C:\Projects --port 0 --open
+```
+
 如果需要固定地址，可省略 `--port 0`，默认端口为 `8765`。`--host` 只接受回环
 主机；服务会检查 Host 与 Origin，拒绝符号链接、路径越界和超出大小限制的文件。
 脚本打印的地址包含本次启动专属的会话片段；浏览器用它建立独立 API 路径及
@@ -82,8 +88,23 @@ Dashboard 只提供一个创作页面：左侧目录按项目与剧集整理故�
 浏览器和服务端分别按标准 JSON 解析，任一层发现格式错误或 `NaN` / `Infinity` 等
 非标准数字都拒绝替换原文件。媒体状态只使用“预演、
 待确认、已采用”等创作者语言。
-创作台要求运行平台支持安全目录文件描述符（macOS/Linux）；不支持时服务直接拒绝启动
-并说明原因，不使用存在符号链接竞态的降级路径。
+macOS/Linux 使用固定目录描述符与 `O_NOFOLLOW`。Windows 10/11 x64 使用从卷根逐级打开的
+固定句柄后端，只接受普通盘符路径下的本地固定 NTFS；UNC、设备命名空间、映射网络盘、
+ReFS/exFAT、junction、symlink、OneDrive 占位和任意嵌套 reparse point 都在服务器绑定前
+或目标访问时拒绝。Windows 不降级为路径版或只读模式。
+
+Windows 保存会固定目标父目录，持有与 CLI 相同的 `.short-drama/locks/transaction.lock`
+以及目标首字节锁，在父句柄下创建固定短前缀临时文件并刷新，再次复核目标 SHA-256 后通过
+`NtSetInformationFile(FileRenameInformationEx)` 执行父句柄相对原子替换。普通外部编辑器
+已经持有目标写句柄时，Dashboard 返回版本冲突；Dashboard 持锁期间才发起的普通外部写入
+会被 Windows 拒绝，已验证版本仍由 Dashboard 完成替换。两种情况都不会覆盖未知内容。
+媒体响应持有已验证文件句柄直到响应结束；工作区或父目录路径被重命名和替换后，已固定请求
+仍只访问原句柄对象。
+
+正文替换是保存结果的权威提交点。若正文已成功替换、但 `.short-drama/state.json` 的生命周期
+失效更新失败，响应仍返回 `saved:true` 和新 `version`，并附加
+`stateWarning:"lifecycle_update_failed"`。前端据此清除已提交内容的 dirty 状态，显示
+“正文已保存，但状态记录更新失败”，并要求运行项目预检；不得把已经落盘的正文伪装成保存失败。
 
 ## 发布与创作者确认
 
