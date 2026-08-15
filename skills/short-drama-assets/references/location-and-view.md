@@ -58,6 +58,33 @@ View 值得存在，是因为下游要反复引用一种稳定、能说明空间
 - 临时海报、散落文件、积水若会影响故事/连续性，进入 View state 或 delta；普通可替换
   装饰可留作 set dressing。
 
+## 空间证据状态
+
+完整 Location 的 `coordinate_system` 必须把观察方向编码成数据，而不是只在提示词里口头声明：
+
+```json
+{"north":"候船厅方向","origin":"室内西南角地面","front":"观察者位于南侧并朝北观察","left_right":"观察者朝北时，西为左、东为右"}
+```
+
+四项都必须是非空字符串。`front` 定义正交板 Front，`left_right` 固定手性，防止左右板互换或镜像。
+
+需要正交板、俯视板或其它会暴露不可见背面的生产板时，spatial model 增加非空对象
+`evidence_elements`。对象 key 是稳定、可用 RFC 6901 定位的证据 key；每个 value 必须包含
+唯一非空 `element_id`、`confirmed | inferred | unknown` 状态、受控 `prompt_group`
+（`shell | opening | fixed_furniture | region`），以及至少一条有效 canonical
+`source_refs`。例如：
+
+```json
+{"north_door":{"element_id":"north door","status":"confirmed","prompt_group":"opening","source_refs":[{"owner":"short-drama-assets","artifact":"设定集/locations.jsonl","hash":"<sha256>","record_id":"LOC-FERRY-OFFICE","field":"/entrances/0"}]}}
+```
+
+`confirmed` 才是可直接复用的空间事实；
+`inferred` 是保守补全，`unknown` 是明确缺口，两者都不得混入 `fixed_anchors`、
+`entrances` 或 `pairwise_relations` 冒充已确认地理。
+
+图片提示词只能逐项投影这些已接受状态，且必须用 spatial model 自身的
+`/evidence_elements/<key>` 引用覆盖全部条目，不能自行判断背面结构属于确认、推定还是未知。
+
 ## 合成例：旧渡站值班室
 
 `LOC-FERRY-OFFICE`：狭长室内；北门通候船厅；东侧河窗；西侧整面旧柜台；配电箱

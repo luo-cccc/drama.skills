@@ -52,6 +52,11 @@
 
 `evidence_state: active` 只表示这份证据仍可使用，**不表示产物通过或被接受**。
 
+质量优先项目可将 `production_flow.image_result_gate` 设为 `observed`。此时每条已接受 M4a
+图片规格都必须在项目私有的 `.short-drama/evidence/production-observations.jsonl` 中有一条
+精确 `generated_result` 观察，绑定当前规格文件 hash、规格记录 hash、参考槽集合和 production
+profile。该门禁仍只证明“授权观察发生过”，不证明画面合格。默认 `prompt_only` 保持仅提示词流程。
+
 两种观察不能混为一条：一条讲输入里有什么，另一条讲某次结果发生了什么，能支持的结论
 完全不同。任务成功、结果地址或文件存在，都不能代替其中任何一种。
 

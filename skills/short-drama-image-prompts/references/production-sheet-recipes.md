@@ -4,6 +4,7 @@
 
 - [角色参考板](#一角色参考板)
 - [场景方位板](#二场景方位板)
+- [场景空间专项板](#二之一场景空间专项板)
 - [道具参考板](#三道具参考板)
 - [合成与修改](#四首帧合成与定点修改指令)
 - [资产范围](#五资产范围决策craft_default)
@@ -103,6 +104,17 @@
   来光”公式。
 - 观察视角不自动携带情绪。时间、光线和戏剧状态若变化，明确它属于场景的固定事实、
   观察面的可见差异还是本场版本，避免为每个方向发明一套气氛真相。
+
+## 二之一、场景空间专项板
+
+用户明确需要 Front/Left/Right/Back 正交板或严格 90 度俯视板时，使用
+[scene-spatial-sheets.md](scene-spatial-sheets.md) 的 `scene_orthographic` / `scene_top_view`
+板式。两者仍是 `asset_board` 编译任务，只绑定单一 Location 的 spatial model；专用
+`view_projection` fragment 通过 `scope.sheet_profile` 声明板式，不创建复合 View，也不替代
+M2/M4b 使用的普通 View plate。
+
+正交板和俯视板都不承载摄影机或演员路线。俯视板只画地理；需要机位或 blocking 空间图时，
+由 storyboard 消费底板并拥有 overlay，不反向修改图片提示词阶段。
 
 ## 三、道具参考板
 

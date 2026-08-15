@@ -32,6 +32,8 @@ description: 仅在用户明确调用 $short-drama-image-prompts 时触发；未
 专项提示词只在命中时读取：人物、场景、道具分别见
 [character-and-look.md](references/character-and-look.md)、
 [location-plate.md](references/location-plate.md)、[prop-plate.md](references/prop-plate.md)；
+场景正交板或严格 90 度俯视板见
+[scene-spatial-sheets.md](references/scene-spatial-sheets.md)；
 Look Development 与状态变体见 [lookdev-frame.md](references/lookdev-frame.md)、
 [look-and-state-variant.md](references/look-and-state-variant.md)；定点修订和审查样例见
 [edit-and-revision.md](references/edit-and-revision.md)、
@@ -49,6 +51,6 @@ Look Development 与状态变体见 [lookdev-frame.md](references/lookdev-frame.
 
 - 不创建资产身份、模型或 View。
 - 不从旧长提示词反向总结身份。
-- 不生成、上传或检查图片。
+- 不生成、上传或检查图片像素；`observed` 主线门禁只校验外部授权观察记录是否精确绑定当前规格，绝不把观察冒充验收。
 - 参考图可用范围必须来自创作者说明或授权观察记录。
 - owner 不自行签发终审结论。

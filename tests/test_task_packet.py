@@ -131,6 +131,33 @@ class TaskPacketTests(unittest.TestCase):
         self.assertTrue(delta["delta"])
         self.assertEqual(len(delta["targets"]), 1)
 
+    def test_image_prompt_packet_never_consumes_storyboard_outputs(self) -> None:
+        files = {
+            "剧集/EP001/screenplay.md": ("short-drama-write", "M2"),
+            "剧集/EP001/assets/decisions.jsonl": ("short-drama-assets", "M3"),
+            "剧集/EP001/storyboard/shots.jsonl": ("short-drama-storyboard", "M4b"),
+        }
+        artifacts = {}
+        for index, (relative, (owner, _milestone)) in enumerate(files.items(), 1):
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"source {index}\n", encoding="utf-8")
+            artifacts[f"artifact-{index}"] = {
+                "owner": owner,
+                "build_state": "materialized",
+                "creator_acceptance": "accepted",
+                "accepted_targets": {relative: self.tool.sha256_file(target)},
+            }
+        sources = self.tool._task_sources(
+            self.root,
+            {"artifacts": artifacts},
+            spec=self.tool.TASK_STAGE_SPECS["image-prompts"],
+            episode="EP001",
+            intent="create",
+        )
+        owners = {source["owner"] for source in sources}
+        self.assertEqual(owners, {"short-drama-write", "short-drama-assets"})
+
 
 if __name__ == "__main__":
     unittest.main()

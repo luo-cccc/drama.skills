@@ -44,6 +44,7 @@
 | 角色声音方向与音色 | `$short-drama-assets` | 跨集稳定声音身份：`voice_direction` 以参考音频为音色载体，文字承担选型判据与专名发音（AST-07） | 本场怎么说属于表演，留给 write 的配音本逐句决定；无参考音频时保持 `reference_ref: null` 待选型，不用文字冒充音色 |
 | 资产图片提示词 | `$short-drama-image-prompts` | 把已接受资产（或 `authority:candidate` 临时绑定的 proposed 播种记录）投影为单帧可见规格 | 不承载有先后顺序的剧情动作 |
 | 场景板光线与跨 View 一致 | `$short-drama-image-prompts` | 同一地点要拆多个观察方向、且这些板会被互相剪接 | 朝向造成的逆光/落影差异不需拉平 |
+| 场景正交板与俯视板 | `$short-drama-image-prompts` | 需要 Front/Left/Right/Back 正交资产板或严格 90 度俯视空间板 | 绑定 accepted spatial model，不创建复合 View；机位和演员路线由 storyboard 在下游拥有 |
 | 图片提示词定点修改 | `$short-drama-image-prompts` | 修改局部并冻结 preserve set | 不把重写整图伪装成局部编辑 |
 | 镜头目的与覆盖 | `$short-drama-storyboard` | 从剧本建立有动机的镜头 | 不为景别多样性硬拆镜 |
 | 场次视觉计划与 Coverage Audition | `$short-drama-storyboard` | 关键场次需先比较观众立场、信息时机、空间、摄影与声音运动 | 可选中间层，不拥有剧本事实或 shot 边界，不规定宫格/镜头数 |

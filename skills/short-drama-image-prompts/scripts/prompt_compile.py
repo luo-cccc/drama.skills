@@ -16,7 +16,7 @@ MINIMUM_PYTHON = (3, 10)
 if sys.version_info < MINIMUM_PYTHON:
     raise SystemExit("short-drama needs Python 3.10 or newer")
 
-COMPILER_VERSION = "1.0"
+COMPILER_VERSION = "1.2"
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -31,6 +31,29 @@ PROFILE_ORDER = {
     "keyframe": ("style_core", "identity_full", "continuity_lock", "variant_delta", "view_projection", "negative_lock"),
     "motion": ("style_core", "identity_full", "continuity_lock", "variant_delta", "view_projection", "negative_lock"),
 }
+SHEET_PROFILE_EVIDENCE_DISPLAY = {
+    "confirmed": "solid",
+    "inferred": "dashed_or_translucent",
+    "unknown": "dash_dot_labeled",
+}
+SHEET_PROFILE_DEFINITIONS = {
+    "scene_orthographic": {
+        "projection": "orthographic",
+        "panels": ["front", "left", "right", "back"],
+        "layout": "horizontal_4_panel",
+        "board_aspect_ratio": "16:9",
+        "required_policy": ("cutaway_policy", "hide_obstructing_wall_only"),
+    },
+    "scene_top_view": {
+        "projection": "orthographic_top_down_90",
+        "panels": ["top"],
+        "layout": "single_top_panel",
+        "board_aspect_ratio": "16:9",
+        "required_policy": ("roof_policy", "remove_roof_and_ceiling"),
+    },
+}
+SHEET_EVIDENCE_STATES = frozenset(SHEET_PROFILE_EVIDENCE_DISPLAY)
+SHEET_PROMPT_GROUPS = frozenset({"shell", "opening", "fixed_furniture", "region"})
 REQUIRED_FRAGMENT_KINDS = frozenset(
     {"style_core", "identity_full", "continuity_lock", "view_projection", "negative_lock"}
 )
@@ -40,6 +63,7 @@ ASSET_FRAGMENT_KINDS = frozenset(
 SECTION_TITLES = {
     "en": {
         "task": "Task and format",
+        "sheet": "Scene sheet profile",
         "baseline": "Fixed asset baseline",
         "variant": "State delta",
         "view": "View and spatial projection",
@@ -48,6 +72,7 @@ SECTION_TITLES = {
     },
     "zh": {
         "task": "任务与格式",
+        "sheet": "场景板式",
         "baseline": "固定资产基线",
         "variant": "状态增量",
         "view": "观察方向与空间投影",
@@ -59,6 +84,198 @@ SECTION_TITLES = {
 
 class CompileError(ValueError):
     """A prompt cannot be compiled without guessing or rewriting authority."""
+
+
+def _validate_artifact_ref(reference: Any, *, label: str) -> None:
+    if not isinstance(reference, dict):
+        raise CompileError(f"{label} must be an artifact ref")
+    for key in ("owner", "artifact", "record_id"):
+        if not isinstance(reference.get(key), str) or not reference[key].strip():
+            raise CompileError(f"{label} needs {key}")
+    digest = reference.get("hash")
+    if not isinstance(digest, str) or HASH_RE.fullmatch(digest) is None:
+        raise CompileError(f"{label} needs sha256 hash")
+
+
+def _validate_sheet_profile(
+    record: Mapping[str, Any], bindings: list[Any], *, profile: str
+) -> str | None:
+    sheet = record.get("sheet_profile")
+    if sheet is None:
+        return None
+    if profile != "asset_board":
+        raise CompileError("sheet_profile is only valid for asset_board prompts")
+    if record.get("purpose") != "location_plate":
+        raise CompileError("sheet_profile requires purpose location_plate")
+    if len(bindings) != 1 or not isinstance(bindings[0], dict):
+        raise CompileError("sheet_profile must bind exactly one location asset")
+    asset_id = bindings[0].get("asset_id")
+    if not isinstance(asset_id, str) or not asset_id.startswith("LOC-"):
+        raise CompileError("sheet_profile asset must use a LOC- id")
+    if not isinstance(sheet, dict):
+        raise CompileError("sheet_profile must be an object")
+    name = sheet.get("name")
+    definition = SHEET_PROFILE_DEFINITIONS.get(name)
+    if definition is None:
+        raise CompileError(f"unsupported sheet_profile: {name}")
+    if sheet.get("projection") != definition["projection"]:
+        raise CompileError(f"{name} requires projection {definition['projection']}")
+    if sheet.get("panels") != definition["panels"]:
+        raise CompileError(f"{name} requires panels in canonical order")
+    if sheet.get("layout") != definition["layout"]:
+        raise CompileError(f"{name} requires layout {definition['layout']}")
+    if sheet.get("board_aspect_ratio") != definition["board_aspect_ratio"]:
+        raise CompileError(
+            f"{name} requires board_aspect_ratio {definition['board_aspect_ratio']}"
+        )
+    if sheet.get("safe_margin") is not True:
+        raise CompileError(f"{name} requires safe_margin true")
+    if sheet.get("shared_scale") is not True:
+        raise CompileError(f"{name} requires shared_scale true")
+    model_id = _binding_id(bindings[0], "model_id", "model_ref")
+    if model_id is None:
+        raise CompileError("sheet_profile asset binding needs a spatial model")
+    if _binding_id(bindings[0], "view_id", "view_ref") is not None:
+        raise CompileError("sheet_profile binds the spatial model, not a View")
+    orientation_ref = sheet.get("orientation_basis_ref")
+    _validate_artifact_ref(orientation_ref, label="orientation_basis_ref")
+    if orientation_ref.get("owner") != "short-drama-assets":
+        raise CompileError("orientation_basis_ref must be owned by short-drama-assets")
+    if not str(orientation_ref.get("artifact")).endswith("/spatial-models.jsonl"):
+        raise CompileError("orientation_basis_ref must target spatial-models.jsonl")
+    if orientation_ref.get("record_id") != model_id:
+        raise CompileError("orientation_basis_ref must target the bound spatial model")
+    if orientation_ref.get("field") != "/coordinate_system":
+        raise CompileError("orientation_basis_ref must target /coordinate_system")
+    if sheet.get("evidence_display") != SHEET_PROFILE_EVIDENCE_DISPLAY:
+        raise CompileError(f"{name} requires the canonical evidence_display legend")
+    policy_key, policy_value = definition["required_policy"]
+    if sheet.get(policy_key) != policy_value:
+        raise CompileError(f"{name} requires {policy_key} {policy_value}")
+
+    if "overlay_refs" in sheet:
+        raise CompileError("scene sheet profiles do not accept storyboard overlays")
+    if name == "scene_orthographic":
+        if "roof_policy" in sheet:
+            raise CompileError("scene_orthographic must not declare roof_policy")
+    elif "cutaway_policy" in sheet:
+        raise CompileError("scene_top_view must not declare cutaway_policy")
+
+    evidence = sheet.get("evidence_bindings")
+    if not isinstance(evidence, list) or not evidence:
+        raise CompileError(f"{name} requires non-empty evidence_bindings")
+    seen_elements: set[str] = set()
+    states: set[str] = set()
+    for index, item in enumerate(evidence):
+        label = f"evidence_bindings[{index}]"
+        if not isinstance(item, dict):
+            raise CompileError(f"{label} must be an object")
+        element_id = item.get("element_id")
+        if not isinstance(element_id, str) or not element_id.strip():
+            raise CompileError(f"{label} needs element_id")
+        if element_id in seen_elements:
+            raise CompileError(f"duplicate evidence element_id: {element_id}")
+        seen_elements.add(element_id)
+        status = item.get("status")
+        if status not in SHEET_EVIDENCE_STATES:
+            raise CompileError(f"{label} has unsupported status: {status}")
+        states.add(str(status))
+        prompt_group = item.get("prompt_group")
+        if prompt_group not in SHEET_PROMPT_GROUPS:
+            raise CompileError(f"{label} has unsupported prompt_group: {prompt_group}")
+        source_ref = item.get("source_ref")
+        _validate_artifact_ref(source_ref, label=f"{label}.source_ref")
+        if source_ref.get("owner") != "short-drama-assets":
+            raise CompileError(f"{label}.source_ref must be owned by short-drama-assets")
+        if source_ref.get("artifact") != orientation_ref.get("artifact"):
+            raise CompileError(f"{label}.source_ref must target the bound spatial model artifact")
+        if source_ref.get("record_id") != model_id:
+            raise CompileError(f"{label}.source_ref must target the bound spatial model")
+        field = source_ref.get("field")
+        if (
+            not isinstance(field, str)
+            or not field.startswith("/evidence_elements/")
+            or field.count("/") != 2
+        ):
+            raise CompileError(
+                f"{label}.source_ref must target one /evidence_elements/<key> entry"
+            )
+    if "confirmed" not in states:
+        raise CompileError(f"{name} evidence_bindings need confirmed geometry")
+
+    annotation = sheet.get("annotation_treatment")
+    if annotation != {
+        "mode": "postproduction",
+        "generated_text": "none",
+        "unknown_label": "needs_confirmation",
+    }:
+        raise CompileError(f"{name} requires canonical postproduction annotation_treatment")
+    return str(name)
+
+
+def _sheet_profile_lines(sheet: Mapping[str, Any], *, language: str) -> list[str]:
+    name = str(sheet["name"])
+    is_zh = language.casefold().startswith("zh")
+    if name == "scene_orthographic":
+        if is_zh:
+            lines = [
+                "生成场景正交板，面板严格按 Front、Left、Right、Back 排列。",
+                "使用 16:9 横向四格布局并保留安全边距。",
+                "使用绑定 spatial model 的坐标系与 Front 基准，采用真正正交投影、统一尺度与基线。",
+                "每格只隐藏面向当前观察方向且确实阻挡内部的墙体，保留该墙门窗和入口轮廓，其他结构与陈设不变。",
+            ]
+        else:
+            lines = [
+                "Create a scene orthographic sheet with panels ordered Front, Left, Right, Back.",
+                "Use a 16:9 horizontal four-panel layout with safe margins.",
+                "Use the bound spatial model coordinate system and Front basis with true orthographic projection, one shared scale, and one baseline.",
+                "In each panel, hide only the wall that faces and obstructs that view; preserve its door, window, and entrance outlines and keep all other geometry and dressing fixed.",
+            ]
+    else:
+        if is_zh:
+            lines = [
+                "生成严格 90 度垂直向下的正交俯视场景板，不使用鸟瞰透视或三分之四俯视。",
+                "使用 16:9 单面板布局并保留安全边距。",
+                "使用绑定 spatial model 的坐标系，移除屋顶与天花，以统一尺度显示墙体开顶切面、门窗、家具、功能区和通道。",
+                "只生成地理底板，不添加摄影机、视野锥、镜头编号或演员走位。",
+            ]
+        else:
+            lines = [
+                "Create a strict 90-degree vertical top-down orthographic scene sheet, with no bird's-eye perspective or three-quarter view.",
+                "Use a 16:9 single-panel layout with safe margins.",
+                "Use the bound spatial model coordinate system; remove the roof and ceiling and show open wall cuts, doors, windows, furniture, functional zones, and paths at one shared scale.",
+                "Create only the geography base plate; add no cameras, view cones, shot numbers, or performer blocking.",
+            ]
+    grouped: dict[tuple[str, str], int] = {}
+    for item in sheet["evidence_bindings"]:
+        key = (str(item["status"]), str(item["prompt_group"]))
+        grouped[key] = grouped.get(key, 0) + 1
+    status_zh = {"confirmed": "已确认", "inferred": "保守推定", "unknown": "未知"}
+    group_zh = {"shell": "建筑壳体", "opening": "门窗开口", "fixed_furniture": "固定家具", "region": "功能区域"}
+    treatment_zh = {"confirmed": "实线或正常不透明度", "inferred": "短虚线或低饱和半透明", "unknown": "点划线并预留标注引线"}
+    status_en = {"confirmed": "Confirmed", "inferred": "Conservatively inferred", "unknown": "Unknown"}
+    group_en = {"shell": "building-shell", "opening": "door/window opening", "fixed_furniture": "fixed-furniture", "region": "functional-region"}
+    treatment_en = {"confirmed": "solid lines or normal opacity", "inferred": "dashed lines or low opacity", "unknown": "dash-dot lines with reserved annotation leaders"}
+    for status in ("confirmed", "inferred", "unknown"):
+        for prompt_group in ("shell", "opening", "fixed_furniture", "region"):
+            count = grouped.get((status, prompt_group), 0)
+            if not count:
+                continue
+            if is_zh:
+                lines.append(
+                    f"{status_zh[status]}的{group_zh[prompt_group]}（元数据精确绑定 {count} 项）使用{treatment_zh[status]}。"
+                )
+            else:
+                lines.append(
+                    f"Render {count} exactly bound {status_en[status].lower()} {group_en[prompt_group]} element(s) with {treatment_en[status]}."
+                )
+    if any(status == "unknown" for status, _group in grouped):
+        lines.append(
+            "待确认文字仅在后期添加，生成画面不得绘制可读注释文字。"
+            if is_zh
+            else "Add needs-confirmation text only in postproduction; generate no readable annotation text."
+        )
+    return lines
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -170,7 +387,11 @@ def _model_record_ids(fragment: Mapping[str, Any]) -> set[str]:
 
 
 def _validate_binding_fragments(
-    bindings: list[Any], resolved: list[Mapping[str, Any]], *, profile: str
+    bindings: list[Any],
+    resolved: list[Mapping[str, Any]],
+    *,
+    profile: str,
+    sheet_profile: str | None = None,
 ) -> None:
     normalized: dict[str, dict[str, str | None]] = {}
     for binding in bindings:
@@ -184,8 +405,9 @@ def _validate_binding_fragments(
         model_id = _binding_id(binding, "model_id", "model_ref")
         view_id = _binding_id(binding, "view_id", "view_ref")
         variant_id = _binding_id(binding, "variant_id", "variant_ref")
-        if model_id is None or view_id is None:
-            raise CompileError(f"asset binding needs model and view: {asset_id}")
+        if model_id is None or (sheet_profile is None and view_id is None):
+            requirement = "model" if sheet_profile is not None else "model and view"
+            raise CompileError(f"asset binding needs {requirement}: {asset_id}")
         normalized[asset_id] = {
             "model_id": model_id,
             "view_id": view_id,
@@ -237,11 +459,22 @@ def _validate_binding_fragments(
             if model_id not in _model_record_ids(kinds[kind][0]):
                 raise CompileError(f"{kind} fragment does not reference bound model for {asset_id}")
         view_fragment = kinds["view_projection"][0]
-        view_id = str(binding["view_id"])
-        if view_fragment.get("scope", {}).get("view_id") != view_id:
-            raise CompileError(f"view_projection scope does not match bound view for {asset_id}")
-        if view_id not in _model_record_ids(view_fragment):
-            raise CompileError(f"view_projection does not reference bound view for {asset_id}")
+        view_scope = view_fragment.get("scope", {})
+        if sheet_profile is not None:
+            if view_scope.get("sheet_profile") != sheet_profile or "view_id" in view_scope:
+                raise CompileError(
+                    f"view_projection scope does not match sheet_profile for {asset_id}"
+                )
+            if model_id not in _model_record_ids(view_fragment):
+                raise CompileError(
+                    f"sheet view_projection does not reference bound spatial model for {asset_id}"
+                )
+        else:
+            view_id = str(binding["view_id"])
+            if view_scope.get("view_id") != view_id:
+                raise CompileError(f"view_projection scope does not match bound view for {asset_id}")
+            if view_id not in _model_record_ids(view_fragment):
+                raise CompileError(f"view_projection does not reference bound view for {asset_id}")
         variant_id = binding.get("variant_id")
         variants = kinds.get("variant_delta", [])
         if variant_id is None and variants:
@@ -278,6 +511,7 @@ def compile_record(
         raise CompileError(
             f"prompt profile must be {expected_profile}, got {profile}"
         )
+    sheet_profile = _validate_sheet_profile(record, bindings, profile=str(profile))
     refs = components.get("fragment_refs")
     if not isinstance(refs, list) or not refs:
         raise CompileError("fragment_refs must be a non-empty array")
@@ -323,7 +557,15 @@ def compile_record(
     if len(languages) != 1 or not all(isinstance(value, str) and value for value in languages):
         raise CompileError("fragment_refs must use one non-empty language")
     language = str(next(iter(languages)))
-    _validate_binding_fragments(bindings, resolved, profile=str(profile))
+    declared_language = record.get("language")
+    if declared_language is not None and declared_language != language:
+        raise CompileError("record language does not match fragment language")
+    _validate_binding_fragments(
+        bindings,
+        resolved,
+        profile=str(profile),
+        sheet_profile=sheet_profile,
+    )
 
     local = _strings(components.get("local_instructions", []), label="local_instructions")
     negatives = _strings(
@@ -336,6 +578,9 @@ def compile_record(
 
     titles = SECTION_TITLES["zh" if language.casefold().startswith("zh") else "en"]
     sections: list[tuple[str, list[str]]] = [(titles["task"], [task.strip()])]
+    sheet = record.get("sheet_profile")
+    if isinstance(sheet, dict):
+        sections.append((titles["sheet"], _sheet_profile_lines(sheet, language=language)))
     fixed = [str(fragment.get("text", "")).strip() for fragment in resolved if fragment.get("fragment_kind") not in {"variant_delta", "view_projection", "negative_lock"}]
     variants = [str(fragment.get("text", "")).strip() for fragment in resolved if fragment.get("fragment_kind") == "variant_delta"]
     views = [str(fragment.get("text", "")).strip() for fragment in resolved if fragment.get("fragment_kind") == "view_projection"]
@@ -357,6 +602,7 @@ def compile_record(
     )
     output_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     result = dict(record)
+    result["language"] = language
     result["compilation_manifest"] = {
         "compiler_version": COMPILER_VERSION,
         "fragment_hashes": fragment_hashes,

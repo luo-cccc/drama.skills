@@ -72,7 +72,9 @@
 | IMG-10 | reviewed_invariant | 同一 Location 在相同时段/天气状态下的各 View 共享主光源、色温关系与对比方向；任何差异必须引用已记录的原因及其 delta。 |
 | IMG-11 | reviewed_invariant | 风格帧在已声明的人物表现、核心地点或高压力测试轴上绑定已接受的视觉方向与制作形态；高压力帧还要为故事状态与信息权限绑定精确剧本 block；风格参考只能控制已声明的表面处理，绝不控制身份、固定地理、故事状态、人数或道具文字。 |
 | IMG-12 | reviewed_invariant | 每个多参考绑定携带稳定 `slot_id` 与显式唯一 `order`，数组重排或插入不得静默改变参考用途；在项目校验器接管此检查之前，审查者引用冲突的槽位/顺序，而不声称机械强制。 |
-| IMG-13 | structural_invariant | 固定主线 M4a 的 `image-prompt-specs` 必须使用 `asset_board` profile，每条具有唯一 `spec_id` 且只绑定一个资产；合并后覆盖 M2 每个资产的基线板、全部允许 View 与全部 generation variant。每条 model/View/variant/fragment ID+hash 必须形成唯一 fingerprint，不得以代表性板图替代未消费状态。 |
+| IMG-13 | structural_invariant | 固定主线 M4a 的 `image-prompt-specs` 必须使用 `asset_board` profile，每条具有唯一 `spec_id` 且只绑定一个资产；合并后覆盖 M2 每个资产的基线板、全部允许 View 与全部 generation variant。普通板的 model/View/variant/fragment、场景空间板的 model/sheet_profile/variant/fragment ID+hash 必须形成唯一 fingerprint；附加空间板不得替代未消费的普通 View。 |
+| IMG-14 | structural_invariant | `scene_orthographic` 只绑定单一 Location 的 spatial model，不创建复合 View；专用 `view_projection` fragment 以 `scope.sheet_profile` 绑定该模型。坐标系明确 Front 与左右手性，板面固定 `horizontal_4_panel`、`16:9`、安全边距、Front/Left/Right/Back 顺序、统一正交尺度与只隐藏当前阻挡墙的切墙政策，不得携带摄影机或演员 blocking overlay。 |
+| IMG-15 | structural_invariant | `scene_top_view` 只绑定单一 Location 的 spatial model，使用 `single_top_panel`、`16:9` 与安全边距生成严格 90 度地理底板；摄影机、视野锥、镜头编号与演员路线属于 storyboard，不得成为 M4a 输入或回写 M4a。两种场景空间板都逐元素绑定确认、推定与未知证据及其受控 `prompt_group`；可执行正文按状态+分组压缩，未知标签只允许后期排版，生成画面不得绘制可读注释文字。 |
 
 规则分级由高到低：`structural_invariant`（结构缺陷，阻断）、
 `reviewed_invariant`（需证据判断）、`craft_default`（常用做法，可覆盖）、

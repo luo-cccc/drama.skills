@@ -1,9 +1,9 @@
 {
   "suite": "short-drama-suite",
-  "suite_version": "0.6.0",
-  "contract_version": "1.3.1-draft",
+  "suite_version": "0.6.3",
+  "contract_version": "1.3.3-draft",
   "core_skill": "short-drama",
   "core_manifest": "../short-drama/suite-manifest.json",
-  "recipe_version": "1.2.0-draft",
-  "core_manifest_sha256": "cf050b5be4f83c6e5f4b559144c3559dd80bd33d9ae6a4beb14e2c71e75a61b7"
+  "recipe_version": "1.3.2-draft",
+  "core_manifest_sha256": "fd1f28a3f73e67a753438dc394a399059350cfb1a7f82b33d2c0f785eb0ce175"
 }

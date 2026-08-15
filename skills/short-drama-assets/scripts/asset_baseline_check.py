@@ -36,6 +36,8 @@ FRAGMENT_KINDS = frozenset(
     }
 )
 PROMPT_PROFILES = frozenset({"asset_board", "keyframe", "motion"})
+SHEET_PROFILES = frozenset({"scene_orthographic", "scene_top_view"})
+SPATIAL_PROMPT_GROUPS = frozenset({"shell", "opening", "fixed_furniture", "region"})
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -295,6 +297,100 @@ def validate_m15a(directory: Path) -> dict[str, Any]:
             code="M15_MODEL_FIELD",
             allow_empty=("permanent_marks", "asymmetry"),
         )
+        if kind == "location" and tier == "full":
+            coordinate_system = model.get("coordinate_system")
+            if not isinstance(coordinate_system, dict) or any(
+                not isinstance(coordinate_system.get(field), str)
+                or not coordinate_system[field].strip()
+                for field in ("north", "origin", "front", "left_right")
+            ):
+                findings.append(
+                    _finding(
+                        "M15_SPATIAL_ORIENTATION",
+                        f"{asset_id} coordinate_system needs non-empty north, origin, front, and left_right",
+                    )
+                )
+        if kind == "location" and "evidence_elements" in model:
+            evidence_elements = model.get("evidence_elements")
+            if not isinstance(evidence_elements, dict) or not evidence_elements:
+                findings.append(
+                    _finding(
+                        "M15_SPATIAL_EVIDENCE",
+                        f"{asset_id} evidence_elements must be a non-empty object",
+                    )
+                )
+            else:
+                seen_element_ids: set[str] = set()
+                for evidence_key, evidence in evidence_elements.items():
+                    if not isinstance(evidence_key, str) or not evidence_key:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element key is invalid",
+                            )
+                        )
+                        continue
+                    if not isinstance(evidence, dict):
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element must be an object: {evidence_key}",
+                            )
+                        )
+                        continue
+                    element_id = evidence.get("element_id")
+                    if not isinstance(element_id, str) or not element_id:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element needs element_id: {evidence_key}",
+                            )
+                        )
+                    elif element_id in seen_element_ids:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} duplicate evidence element_id: {element_id}",
+                            )
+                        )
+                    else:
+                        seen_element_ids.add(element_id)
+                    if evidence.get("status") not in {"confirmed", "inferred", "unknown"}:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element has invalid status: {evidence_key}",
+                            )
+                        )
+                    if evidence.get("prompt_group") not in SPATIAL_PROMPT_GROUPS:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element has invalid prompt_group: {evidence_key}",
+                            )
+                        )
+                    source_refs = evidence.get("source_refs")
+                    if not isinstance(source_refs, list) or not source_refs:
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element needs source_refs: {evidence_key}",
+                            )
+                        )
+                    elif any(
+                        not isinstance(reference, dict)
+                        or not isinstance(reference.get("owner"), str)
+                        or not isinstance(reference.get("artifact"), str)
+                        or not isinstance(reference.get("hash"), str)
+                        or HASH_RE.fullmatch(reference["hash"]) is None
+                        for reference in source_refs
+                    ):
+                        findings.append(
+                            _finding(
+                                "M15_SPATIAL_EVIDENCE",
+                                f"{asset_id} evidence element has invalid source_refs: {evidence_key}",
+                            )
+                        )
         if tier == "compact":
             anchors = model.get("recognition_anchors")
             if not isinstance(anchors, list) or not 2 <= len(anchors) <= 4:
@@ -447,6 +543,7 @@ def validate_fragments(directory: Path, *, prompt_language: str) -> dict[str, An
     project_root = directory.parent.parent
     fragment_variants: dict[str, int] = {}
     fragment_views: dict[str, int] = {}
+    fragment_sheets: dict[tuple[str, str], int] = {}
     seen: set[str] = set()
     for record in fragments:
         fragment_id = _id(record, "fragment_id")
@@ -475,8 +572,19 @@ def validate_fragments(directory: Path, *, prompt_language: str) -> dict[str, An
             if fragment_scope.get("project") != "all_visual_generation":
                 findings.append(_finding("M15_FRAGMENT_SCOPE", f"{fragment_id} style_core scope is invalid"))
         elif kind == "view_projection":
-            if not isinstance(fragment_scope.get("view_id"), str):
-                findings.append(_finding("M15_FRAGMENT_SCOPE", f"{fragment_id} view scope needs view_id"))
+            view_id = fragment_scope.get("view_id")
+            sheet_profile = fragment_scope.get("sheet_profile")
+            if (isinstance(view_id, str) and sheet_profile is None):
+                pass
+            elif view_id is None and sheet_profile in SHEET_PROFILES:
+                pass
+            else:
+                findings.append(
+                    _finding(
+                        "M15_FRAGMENT_SCOPE",
+                        f"{fragment_id} view scope needs exactly one valid view_id or sheet_profile",
+                    )
+                )
         else:
             jobs = fragment_scope.get("jobs")
             if (
@@ -588,16 +696,42 @@ def validate_fragments(directory: Path, *, prompt_language: str) -> dict[str, An
                     GENERATION_FILES["models"],
                     GENERATION_FILES["spatial"],
                 },
-                "view_projection": {GENERATION_FILES["views"]},
+                "view_projection": (
+                    {GENERATION_FILES["spatial"]}
+                    if isinstance(fragment_scope, dict)
+                    and fragment_scope.get("sheet_profile") in SHEET_PROFILES
+                    else {GENERATION_FILES["views"]}
+                ),
             }.get(str(kind), set())
             if expected_artifacts and (not artifacts or not artifacts <= expected_artifacts):
                 findings.append(_finding("M15_FRAGMENT_MODEL_REF", f"{fragment_id} references the wrong generation record type"))
             if kind == "view_projection":
                 view_id = fragment_scope.get("view_id") if isinstance(fragment_scope, dict) else None
-                if not any(reference.get("record_id") == view_id for reference, _ in resolved_generation_refs):
-                    findings.append(_finding("M15_FRAGMENT_SCOPE", f"{fragment_id} view scope does not match model_refs"))
-                elif isinstance(view_id, str):
-                    fragment_views[view_id] = fragment_views.get(view_id, 0) + 1
+                sheet_profile = (
+                    fragment_scope.get("sheet_profile")
+                    if isinstance(fragment_scope, dict)
+                    else None
+                )
+                if isinstance(view_id, str):
+                    if not any(reference.get("record_id") == view_id for reference, _ in resolved_generation_refs):
+                        findings.append(_finding("M15_FRAGMENT_SCOPE", f"{fragment_id} view scope does not match model_refs"))
+                    else:
+                        fragment_views[view_id] = fragment_views.get(view_id, 0) + 1
+                elif sheet_profile in SHEET_PROFILES:
+                    spatial_refs = [
+                        reference
+                        for reference, expected in resolved_generation_refs
+                        if expected[0] == GENERATION_FILES["spatial"]
+                    ]
+                    if len(spatial_refs) != 1:
+                        findings.append(
+                            _finding(
+                                "M15_FRAGMENT_SCOPE",
+                                f"{fragment_id} sheet projection must bind one spatial model",
+                            )
+                        )
+                    key = (asset_id, str(sheet_profile))
+                    fragment_sheets[key] = fragment_sheets.get(key, 0) + 1
         variant_id = record.get("variant_id")
         if kind == "variant_delta" and isinstance(variant_id, str):
             fragment_variants[variant_id] = fragment_variants.get(variant_id, 0) + 1
@@ -668,6 +802,14 @@ def validate_fragments(directory: Path, *, prompt_language: str) -> dict[str, An
                 _finding(
                     "M15_FRAGMENT_VIEW",
                     f"{view_id} needs exactly one view_projection fragment",
+                )
+            )
+    for (asset_id, sheet_profile), count in sorted(fragment_sheets.items()):
+        if count != 1:
+            findings.append(
+                _finding(
+                    "M15_FRAGMENT_SHEET",
+                    f"{asset_id} needs at most one {sheet_profile} projection fragment",
                 )
             )
     return {

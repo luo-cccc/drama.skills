@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import copy
 import sys
 import tempfile
 import unittest
@@ -229,6 +230,97 @@ class AssetConsumptionTests(unittest.TestCase):
         }
         issues = tool._m4a_asset_consumption_issues(self.root, group, with_variant)
         self.assertTrue(any("does not cover variants" in issue for issue in issues))
+
+    def test_m4a_generated_result_observation_gate_is_exact(self) -> None:
+        self.assertEqual(
+            tool._effective_production_flow(self.root)["image_result_gate"],
+            "prompt_only",
+        )
+        record = {
+            "spec_id": "IMG-CHAR-TEST-BASE",
+            "generic_prompt": "exact prompt",
+            "reference_bindings": [],
+            "asset_bindings": [self._binding()],
+            "prompt_components": {
+                "profile": "asset_board",
+                "fragment_refs": self._fragments(),
+            },
+        }
+        relative = "剧集/EP001/assets/image-prompt-specs.jsonl"
+        group = self._group({relative: [record]})
+        self.assertEqual(tool._m4a_result_gate_issues(self.root, group), [])
+        project = json.loads((self.root / "short-drama.json").read_text(encoding="utf-8"))
+        project["production_flow"]["image_result_gate"] = "observed"
+        (self.root / "short-drama.json").write_text(
+            json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        missing = tool._m4a_result_gate_issues(self.root, group)
+        self.assertTrue(any("production observations" in issue for issue in missing))
+
+        production_profile_hash = tool.sha256_bytes(
+            tool._canonical_record_bytes(
+                project["creator_authority"]["production_profile"]
+            )
+        )
+        spec_file_hash = tool.sha256_file(self.root / relative)
+        spec_hash = tool._record_digest(relative, record)
+        reference_slot_set_hash = tool.sha256_bytes(
+            tool._canonical_record_bytes([])
+        )
+        observation = {
+            "observation_id": "PROD-OBS-IMG-CHAR-TEST-BASE",
+            "evidence_state": "active",
+            "observation_kind": "generated_result",
+            "observed_media_sha256": "9" * 64,
+            "prompt_or_spec_refs": [{
+                "owner": "short-drama-image-prompts",
+                "artifact": relative,
+                "hash": spec_file_hash,
+                "record_id": record["spec_id"],
+                "field": "/generic_prompt",
+            }],
+            "production_configuration": {
+                "profile_ref": {
+                    "owner": "creator",
+                    "artifact": "short-drama.json",
+                    "hash": production_profile_hash,
+                    "field": "/creator_authority/production_profile",
+                }
+            },
+            "valid_only_for": {
+                "project_id": project["project_id"],
+                "prompt_or_spec_hashes": [spec_hash],
+                "reference_slot_set_hash": reference_slot_set_hash,
+                "production_profile_hash": production_profile_hash,
+            },
+        }
+        observation_path = self.root / tool.PRODUCTION_OBSERVATIONS_FILE
+        observation_path.parent.mkdir(parents=True, exist_ok=True)
+        observation_path.write_text(
+            json.dumps(observation, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            tool._m4a_result_gate_issues(self.root, group), []
+        )
+
+        observation["valid_only_for"]["prompt_or_spec_hashes"] = ["8" * 64]
+        observation_path.write_text(
+            json.dumps(observation, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        stale = tool._m4a_result_gate_issues(self.root, group)
+        self.assertTrue(any(record["spec_id"] in issue for issue in stale))
+
+    def test_image_result_gate_setting_is_validated(self) -> None:
+        changed = tool.set_production_flow(
+            self.root, {"image_result_gate": "observed"}
+        )
+        self.assertEqual(
+            changed["production_flow"]["image_result_gate"], "observed"
+        )
+        with self.assertRaisesRegex(ValueError, "prompt_only or observed"):
+            tool.set_production_flow(
+                self.root, {"image_result_gate": "approved"}
+            )
 
     def test_storyboard_and_motion_reuse_the_shot_binding_chain(self) -> None:
         shot_binding = {**self._binding(), "fragment_refs": self._fragments()}
@@ -724,6 +816,73 @@ class AssetConsumptionTests(unittest.TestCase):
         self.assertTrue(any("duplicate view_ids" in issue for issue in issues))
         self.assertTrue(any("do not exactly match view_projection" in issue for issue in issues))
 
+    def test_m2_allows_location_sheet_projection_in_addition_to_views(self) -> None:
+        generation = self.root / "设定集" / "generation"
+        scope = {"asset_id": "LOC-1", "asset_kind": "location"}
+        model = {"model_id": "SPATIAL-LOC-1", "location_id": "LOC-1"}
+        view = {
+            "view_id": "GVIEW-LOC-1-NORTH",
+            "asset_id": "LOC-1",
+            "model_ref": {"record_id": model["model_id"]},
+        }
+        fragments = [
+            {"fragment_id": "STYLE", "fragment_kind": "style_core", "asset_id": None},
+            {"fragment_id": "ID", "fragment_kind": "identity_full", "asset_id": "LOC-1", "model_refs": [{"record_id": model["model_id"]}]},
+            {"fragment_id": "CONT", "fragment_kind": "continuity_lock", "asset_id": "LOC-1", "model_refs": [{"record_id": model["model_id"]}]},
+            {"fragment_id": "VIEW", "fragment_kind": "view_projection", "asset_id": "LOC-1", "scope": {"view_id": view["view_id"]}, "model_refs": [{"record_id": view["view_id"]}]},
+            {"fragment_id": "SHEET", "fragment_kind": "view_projection", "asset_id": "LOC-1", "scope": {"sheet_profile": "scene_top_view"}, "model_refs": [{"record_id": model["model_id"]}]},
+            {"fragment_id": "NEG", "fragment_kind": "negative_lock", "asset_id": "LOC-1", "model_refs": [{"record_id": model["model_id"]}]},
+        ]
+        files = {
+            "asset-scope.jsonl": [scope],
+            "asset-models.jsonl": [],
+            "spatial-models.jsonl": [model],
+            "variant-models.jsonl": [],
+            "view-contracts.jsonl": [view],
+            "canonical-fragments.jsonl": fragments,
+        }
+        primary_fields = {
+            "asset-scope.jsonl": "asset_id",
+            "asset-models.jsonl": "model_id",
+            "spatial-models.jsonl": "model_id",
+            "variant-models.jsonl": "variant_id",
+            "view-contracts.jsonl": "view_id",
+            "canonical-fragments.jsonl": "fragment_id",
+        }
+        input_records = {}
+        for name, records in files.items():
+            (generation / name).write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            input_records[f"设定集/generation/{name}"] = {
+                str(record[primary_fields[name]]): "0" * 64
+                for record in records
+            }
+        card_relative = "剧集/EP001/episode-card.json"
+        card_path = self.root / card_relative
+        card_path.parent.mkdir(parents=True, exist_ok=True)
+        card_path.write_text(
+            json.dumps({
+                "generation_asset_bindings": [{
+                    "asset_id": "LOC-1",
+                    "model_id": model["model_id"],
+                    "view_ids": [view["view_id"]],
+                    "variant_ids": [],
+                    "fragment_ids": [fragment["fragment_id"] for fragment in fragments],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            tool._m2_generation_binding_issues(
+                self.root,
+                target_paths=[card_relative],
+                input_records=input_records,
+            ),
+            [],
+        )
+
     def test_stage_record_ids_are_required_and_unique(self) -> None:
         board = {
             "spec_id": "IMG-DUP",
@@ -764,6 +923,179 @@ class AssetConsumptionTests(unittest.TestCase):
         })
         issues = tool._m5_asset_consumption_issues(self.root, group, signatures, self.m2)
         self.assertTrue(any("duplicate M5 motion_id" in issue for issue in issues))
+
+    def test_m4a_scene_sheet_uses_spatial_projection_without_replacing_views(self) -> None:
+        fragments = {
+            "STYLE": {"fragment_id": "STYLE", "fragment_kind": "style_core", "asset_id": None, "fragment_hash": "0" * 64},
+            "ID": {"fragment_id": "ID", "fragment_kind": "identity_full", "asset_id": "LOC-1", "fragment_hash": "0" * 64},
+            "CONT": {"fragment_id": "CONT", "fragment_kind": "continuity_lock", "asset_id": "LOC-1", "fragment_hash": "0" * 64},
+            "VIEW": {"fragment_id": "VIEW", "fragment_kind": "view_projection", "asset_id": "LOC-1", "scope": {"view_id": "GVIEW-LOC-1-NORTH"}, "fragment_hash": "0" * 64},
+            "SHEET": {"fragment_id": "SHEET", "fragment_kind": "view_projection", "asset_id": "LOC-1", "scope": {"sheet_profile": "scene_orthographic"}, "fragment_hash": "0" * 64},
+            "NEG": {"fragment_id": "NEG", "fragment_kind": "negative_lock", "asset_id": "LOC-1", "fragment_hash": "0" * 64},
+        }
+        m2 = {
+            "LOC-1": {
+                "model_id": "SPATIAL-LOC-1",
+                "asset_kind": "location",
+                "view_ids": {"GVIEW-LOC-1-NORTH"},
+                "variant_ids": set(),
+                "fragment_ids": set(fragments),
+                "fragments": fragments,
+            }
+        }
+        normal = {
+            "spec_id": "IMG-LOC-1-NORTH",
+            "asset_bindings": [{
+                "asset_id": "LOC-1",
+                "model_id": "SPATIAL-LOC-1",
+                "view_id": "GVIEW-LOC-1-NORTH",
+                "variant_id": None,
+            }],
+            "prompt_components": {
+                "profile": "asset_board",
+                "fragment_refs": [
+                    {"fragment_id": item, "hash": "0" * 64}
+                    for item in ("STYLE", "ID", "CONT", "VIEW", "NEG")
+                ],
+            },
+        }
+        sheet = {
+            "spec_id": "IMG-LOC-1-ORTHO",
+            "sheet_profile": {"name": "scene_orthographic"},
+            "asset_bindings": [{
+                "asset_id": "LOC-1",
+                "model_id": "SPATIAL-LOC-1",
+                "variant_id": None,
+            }],
+            "prompt_components": {
+                "profile": "asset_board",
+                "fragment_refs": [
+                    {"fragment_id": item, "hash": "0" * 64}
+                    for item in ("STYLE", "ID", "CONT", "SHEET", "NEG")
+                ],
+            },
+        }
+        group = self._group({
+            "剧集/EP001/assets/image-prompt-specs.jsonl": [normal, sheet],
+        })
+        self.assertEqual(tool._m4a_asset_consumption_issues(self.root, group, m2), [])
+
+    def test_scene_sheet_evidence_matches_spatial_model_elements(self) -> None:
+        spatial_relative = "设定集/generation/spatial-models.jsonl"
+        spatial_path = self.root / spatial_relative
+        spatial_path.parent.mkdir(parents=True, exist_ok=True)
+        spatial_model = {
+            "model_id": "SPATIAL-LOC-1",
+            "coordinate_system": {
+                "north": "hall",
+                "origin": "southwest floor",
+                "front": "observer stands south and faces north",
+                "left_right": "west is left and east is right when facing north",
+            },
+            "evidence_elements": {
+                "north_door": {
+                    "element_id": "north door",
+                    "status": "confirmed",
+                    "prompt_group": "opening",
+                    "source_refs": [{
+                        "owner": "creator",
+                        "artifact": "输入/location-brief.json",
+                        "hash": "a" * 64,
+                    }],
+                },
+                "rear_recess": {
+                    "element_id": "rear recess",
+                    "status": "unknown",
+                    "prompt_group": "region",
+                    "source_refs": [{
+                        "owner": "creator",
+                        "artifact": "输入/location-brief.json",
+                        "hash": "a" * 64,
+                    }],
+                },
+            },
+        }
+        spatial_path.write_text(
+            json.dumps(spatial_model, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        spatial_hash = tool.sha256_file(spatial_path)
+        prompt_spec = {
+            "spec_id": "IMG-LOC-1-TOP",
+            "asset_bindings": [{
+                "asset_id": "LOC-1",
+                "model_id": "SPATIAL-LOC-1",
+            }],
+            "sheet_profile": {
+                "name": "scene_top_view",
+                "orientation_basis_ref": {
+                    "owner": "short-drama-assets",
+                    "artifact": spatial_relative,
+                    "hash": spatial_hash,
+                    "record_id": "SPATIAL-LOC-1",
+                    "field": "/coordinate_system",
+                },
+                "evidence_bindings": [
+                    {
+                        "element_id": "north door",
+                        "status": "confirmed",
+                        "prompt_group": "opening",
+                        "source_ref": {
+                            "owner": "short-drama-assets",
+                            "artifact": spatial_relative,
+                            "hash": spatial_hash,
+                            "record_id": "SPATIAL-LOC-1",
+                            "field": "/evidence_elements/north_door",
+                        },
+                    },
+                    {
+                        "element_id": "rear recess",
+                        "status": "unknown",
+                        "prompt_group": "region",
+                        "source_ref": {
+                            "owner": "short-drama-assets",
+                            "artifact": spatial_relative,
+                            "hash": spatial_hash,
+                            "record_id": "SPATIAL-LOC-1",
+                            "field": "/evidence_elements/rear_recess",
+                        },
+                    },
+                ],
+            },
+        }
+        output = {
+            "剧集/EP001/assets/image-prompt-specs.jsonl": (
+                json.dumps(prompt_spec, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+        }
+        tool._validate_scene_sheet_evidence_bindings(
+            self.root, output, {spatial_relative: spatial_hash}
+        )
+
+        wrong_status = copy.deepcopy(prompt_spec)
+        wrong_status["sheet_profile"]["evidence_bindings"][0]["status"] = "inferred"
+        with self.assertRaisesRegex(ValueError, "status does not match"):
+            tool._validate_scene_sheet_evidence_bindings(
+                self.root,
+                {
+                    "剧集/EP001/assets/image-prompt-specs.jsonl": (
+                        json.dumps(wrong_status, ensure_ascii=False) + "\n"
+                    ).encode("utf-8")
+                },
+                {spatial_relative: spatial_hash},
+            )
+
+        incomplete = copy.deepcopy(prompt_spec)
+        incomplete["sheet_profile"]["evidence_bindings"].pop()
+        with self.assertRaisesRegex(ValueError, "must cover the spatial model exactly"):
+            tool._validate_scene_sheet_evidence_bindings(
+                self.root,
+                {
+                    "剧集/EP001/assets/image-prompt-specs.jsonl": (
+                        json.dumps(incomplete, ensure_ascii=False) + "\n"
+                    ).encode("utf-8")
+                },
+                {spatial_relative: spatial_hash},
+            )
 
 
 if __name__ == "__main__":

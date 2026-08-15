@@ -639,7 +639,7 @@ class LifecycleSmokeTests(unittest.TestCase):
         self.assertEqual(legacy["blockers"][0]["code"], "BLK-FLOW-UPGRADE")
         upgraded = run_tool("upgrade-flow", str(self.root))
         self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
-        self.assertEqual(load_project(self.root)["production_flow"]["pipeline_version"], "2.0.1")
+        self.assertEqual(load_project(self.root)["production_flow"]["pipeline_version"], "2.0.2")
 
     def test_prompt_publication_rejects_free_rewrite(self) -> None:
         self._install_generation_baseline()
@@ -764,7 +764,7 @@ class LifecycleSmokeTests(unittest.TestCase):
             sorted(keys),
         )
 
-    def test_input_record_auto_falls_back_when_selector_is_unresolved(self) -> None:
+    def test_input_record_auto_rejects_unresolved_selector(self) -> None:
         input_relative = "设定集/characters.jsonl"
         input_path = self.root / input_relative
         input_path.parent.mkdir(parents=True, exist_ok=True)
@@ -799,27 +799,108 @@ class LifecycleSmokeTests(unittest.TestCase):
             "--input",
             f"{input_relative}={input_hash}",
         )
-        self.assertEqual(published.returncode, 0, published.stderr)
-        record = load_state(self.root)["artifacts"]["EP001:auto-fallback"]
-        self.assertNotIn(input_relative, record.get("candidate_input_records", {}))
+        self.assertNotEqual(published.returncode, 0)
+        self.assertIn("record_id must resolve exactly once", published.stderr)
 
-        explicit = run_tool(
+    def test_structured_ref_requires_matching_accepted_provider(self) -> None:
+        input_relative = "设定集/unmanaged.jsonl"
+        input_path = self.root / input_relative
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text('{"record_id":"REC-1"}\n', encoding="utf-8")
+        input_hash = hashlib.sha256(input_path.read_bytes()).hexdigest()
+        source = self.root / "输入/provider-spoof.json"
+        source.parent.mkdir(exist_ok=True)
+        source.write_text(
+            json.dumps(
+                {
+                    "record_id": "CONSUMER-1",
+                    "source_ref": {
+                        "owner": "short-drama-assets",
+                        "artifact": input_relative,
+                        "hash": input_hash,
+                        "record_id": "REC-1",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        published = run_tool(
             "publish",
             str(self.root),
             "--owner",
             "short-drama-write",
             "--artifact-id",
-            "EP001:auto-fallback",
+            "EP001:provider-spoof",
             "--allow-unregistered-path",
             "--output",
-            "剧集/EP001/custom/auto-fallback.json=输入/auto-fallback.json",
+            "剧集/EP001/custom/provider-spoof.json=输入/provider-spoof.json",
             "--input",
             f"{input_relative}={input_hash}",
-            "--input-record",
-            f"{input_relative}=CHAR-MISSING",
         )
-        self.assertNotEqual(explicit.returncode, 0)
-        self.assertIn("record selector must resolve exactly once", explicit.stderr)
+        self.assertNotEqual(published.returncode, 0)
+        self.assertIn("no matching accepted provider", published.stderr)
+
+    def test_structured_ref_rejects_missing_field(self) -> None:
+        source = self.root / "输入/facts.jsonl"
+        source.parent.mkdir(exist_ok=True)
+        source.write_text('{"record_id":"REC-1","facts":{"door":true}}\n', encoding="utf-8")
+        provider = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-assets",
+            "--artifact-id",
+            "project:facts",
+            "--allow-unregistered-path",
+            "--output",
+            "设定集/custom/facts.jsonl=输入/facts.jsonl",
+        )
+        self.assertEqual(provider.returncode, 0, provider.stderr)
+        self.assertEqual(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "project:facts",
+                "--decision",
+                "accepted",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(run_tool("accept-batch", str(self.root)).returncode, 0)
+        facts = self.root / "设定集/custom/facts.jsonl"
+        facts_hash = hashlib.sha256(facts.read_bytes()).hexdigest()
+        consumer = self.root / "输入/missing-field.json"
+        consumer.write_text(
+            json.dumps(
+                {
+                    "record_id": "CONSUMER-1",
+                    "source_ref": {
+                        "owner": "short-drama-assets",
+                        "artifact": "设定集/custom/facts.jsonl",
+                        "hash": facts_hash,
+                        "record_id": "REC-1",
+                        "field": "/facts/window",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        published = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:missing-field",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/missing-field.json=输入/missing-field.json",
+            "--input",
+            f"设定集/custom/facts.jsonl={facts_hash}",
+        )
+        self.assertNotEqual(published.returncode, 0)
+        self.assertIn("record selector does not resolve", published.stderr)
 
     def test_publish_allows_existing_target_as_candidate_source(self) -> None:
         target = self.root / "剧集/EP001/custom/in-place.json"
@@ -846,6 +927,18 @@ class LifecycleSmokeTests(unittest.TestCase):
 
     def test_m3_publish_uses_file_hash_ref_and_internal_record_binding(self) -> None:
         self._publish_candidate()
+        self.assertEqual(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "EP001:script",
+                "--decision",
+                "accepted",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(run_tool("accept-batch", str(self.root)).returncode, 0)
         index_relative = "剧集/EP001/screenplay-index.jsonl"
         index_path = self.root / index_relative
         records = [
@@ -1280,14 +1373,38 @@ class LifecycleSmokeTests(unittest.TestCase):
         # A JSONL candidate whose structured refs carry record_ids narrows its
         # declared input automatically — no hand-written --input-record.
         (self.root / "设定集").mkdir(exist_ok=True)
+        (self.root / "输入").mkdir(exist_ok=True)
         characters = self.root / "设定集" / "characters.jsonl"
-        characters.write_text(
+        character_source = self.root / "输入" / "characters.jsonl"
+        character_source.write_text(
             '{"record_type":"character","character_id":"CHAR-A","display_name":"甲"}\n'
             '{"record_type":"character","character_id":"CHAR-B","display_name":"乙"}\n',
             encoding="utf-8",
         )
+        provider = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-assets",
+            "--artifact-id",
+            "project:characters",
+            "--output",
+            "设定集/characters.jsonl=输入/characters.jsonl",
+        )
+        self.assertEqual(provider.returncode, 0, provider.stderr)
+        self.assertEqual(
+            run_tool(
+                "decide",
+                str(self.root),
+                "--artifact-id",
+                "project:characters",
+                "--decision",
+                "accepted",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(run_tool("accept-batch", str(self.root)).returncode, 0)
         char_hash = hashlib.sha256(characters.read_bytes()).hexdigest()
-        (self.root / "输入").mkdir(exist_ok=True)
         spec = self.root / "输入" / "spec.jsonl"
         spec.write_text(
             json.dumps(
@@ -1332,6 +1449,116 @@ class LifecycleSmokeTests(unittest.TestCase):
         self.assertEqual(
             sorted(bound["设定集/characters.jsonl"]), ["CHAR-A", "CHAR-B"]
         )
+
+    def test_json_field_auto_binding_and_no_auto_still_validates(self) -> None:
+        project_path = self.root / "short-drama.json"
+        project_hash = hashlib.sha256(project_path.read_bytes()).hexdigest()
+        source = self.root / "输入" / "project-field.json"
+        source.parent.mkdir(exist_ok=True)
+        source.write_text(
+            json.dumps(
+                {
+                    "record_id": "PROJECT-FIELD-1",
+                    "source_ref": {
+                        "owner": "short-drama",
+                        "artifact": "short-drama.json",
+                        "hash": project_hash,
+                        "field": "/creator_authority/production_profile",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        published = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:project-field",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/project-field.json=输入/project-field.json",
+            "--input",
+            f"short-drama.json={project_hash}",
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        record = load_state(self.root)["artifacts"]["EP001:project-field"]
+        field_bindings = record["candidate_input_records"]["short-drama.json"]
+        self.assertEqual(
+            list(field_bindings), ["/creator_authority/production_profile"]
+        )
+        self.assertRegex(
+            field_bindings["/creator_authority/production_profile"], r"^[0-9a-f]{64}$"
+        )
+
+        invalid = self.root / "输入" / "missing-project-field.json"
+        invalid.write_text(
+            json.dumps(
+                {
+                    "record_id": "PROJECT-FIELD-2",
+                    "source_ref": {
+                        "owner": "short-drama",
+                        "artifact": "short-drama.json",
+                        "hash": project_hash,
+                        "field": "/creator_authority/missing",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        rejected = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:missing-project-field",
+            "--allow-unregistered-path",
+            "--no-input-record-auto",
+            "--output",
+            "剧集/EP001/custom/missing-project-field.json=输入/missing-project-field.json",
+            "--input",
+            f"short-drama.json={project_hash}",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("record selector does not resolve", rejected.stderr)
+
+    def test_structured_ref_rejects_markdown_record_selector(self) -> None:
+        markdown = self.root / "输入" / "source.md"
+        markdown.parent.mkdir(exist_ok=True)
+        markdown.write_text("# Source\n", encoding="utf-8")
+        markdown_hash = hashlib.sha256(markdown.read_bytes()).hexdigest()
+        source = self.root / "输入" / "markdown-record-ref.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "record_id": "MARKDOWN-REF-1",
+                    "source_ref": {
+                        "owner": "creator",
+                        "artifact": "输入/source.md",
+                        "hash": markdown_hash,
+                        "record_id": "SECTION-1",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        rejected = run_tool(
+            "publish",
+            str(self.root),
+            "--owner",
+            "short-drama-write",
+            "--artifact-id",
+            "EP001:markdown-record-ref",
+            "--allow-unregistered-path",
+            "--output",
+            "剧集/EP001/custom/markdown-record-ref.json=输入/markdown-record-ref.json",
+            "--input",
+            f"输入/source.md={markdown_hash}",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("record_id/field needs JSON or JSONL", rejected.stderr)
 
     def test_unpublish_candidate_and_protects_accepted(self) -> None:
         self._publish_candidate()

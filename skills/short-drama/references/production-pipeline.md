@@ -1,7 +1,7 @@
 # 固定生产流程（Pipeline 2.0）
 
 这是套件默认的**逐集生产 SOP**，由 `short-drama.json#/production_flow` 固定
-（`pipeline_version` 2.0.1）。`project_tool.py pipeline <project>` 报告当前位置、
+（`pipeline_version` 2.0.2）。`project_tool.py pipeline <project>` 报告当前位置、
 下一步与阻塞项；`enforcement: strict` 下当前里程碑存在阻塞项时退出码为 3，且图片提示词
 与分镜的形态依赖在发布时直接拦停。
 
@@ -24,7 +24,7 @@ M1.5、M4a、M4b、M5 全部必经；唯一捷径是 script-first 跳过 M1，�
 | M1.5b | 标准提示片段 | M1.5a | `short-drama-image-prompts` | `canonical-fragments.jsonl` / `canonical-prompt-library.md`（accepted） | 五类片段覆盖完整，语言与输入哈希当前 |
 | M2 | 写作 | M1.5b | `short-drama-write` | 单集卡、节拍、剧本与索引（accepted），记录实际资产和本集允许消费的 generation 记录 | 剧本类产物接受、索引存在且资产引用完整 |
 | M3 | 单集资产增量 | M2 | `short-drama-assets` | occurrence、复用决定、连续性/状态增量（accepted） | occurrence/decision 身份与类型一致，显式选择 generation model/variant；delta 映射回 M2 |
-| M4a | 单集资产图提示词 | M3 | `short-drama-image-prompts` | 图片规格与 Markdown（accepted） | `asset_board` 逐资产覆盖基线、全部允许 View/variant 并通过确定性编译（必经） |
+| M4a | 单集资产图提示词 | M3 | `short-drama-image-prompts` | 图片规格与 Markdown（accepted） | `asset_board` 逐资产覆盖基线、全部允许 View/variant 并通过确定性编译；`observed` 模式还需逐规格精确生产观察（必经） |
 | M4b | 分镜与关键帧 | M4a | `short-drama-storyboard` | coverage、shots、keyframes 与 Markdown（accepted） | 每镜 Location 完整，asset/model/variant/View/fragment hash fingerprint 与首关键帧一致（必经） |
 | M5 | 视频提示词 | M4b | `short-drama-video-prompts` | motion specs、generation clips 与 Markdown（accepted） | 每镜至少一条 `motion` profile，逐项复用 shot/keyframe fingerprint；每镜模型调用片段完整覆盖且不超过项目上限（必经） |
 | M6 | 审查 | M2–M5 已接受的产物 | `short-drama-review` | `审查/<id>-findings.jsonl` / `审查/<id>-verdict.json`（approve） | 全部产物审查通过（首审默认冷读，交付终审须 L1 fresh） |
@@ -37,9 +37,16 @@ M1.5a 建范围/模型/Variant/View → M1.5b 建标准片段 →
 基线扩展的 M3，再把生成模型和标准片段作为后补说明。
 
 M2 的 `view_ids` 是本集允许下游选择的 View 契约集合，不是写作阶段决定的景别或机位；
-M4b 为每镜从该集合选择实际 `view_id`。M4a/M4b/M5 使用由 asset/model/variant/View 与按
-规范顺序排列的 fragment ID+hash 组成的 binding fingerprint；`pipeline` 逐层对账，漏资产、
+M4b 为每镜从该集合选择实际 `view_id`。M4a 的可选场景正交/俯视附加板绑定 spatial model 与
+`scope.sheet_profile` projection fragment，不创建 View，也不替代该集合中的普通 View plate。
+M4a/M4b/M5 使用由 asset/model/variant/View（空间附加板为 sheet_profile）与按规范顺序排列的
+fragment ID+hash 组成的 binding fingerprint；`pipeline` 逐层对账，漏资产、
 越权新增、View/Variant 越界、片段换版或 shot/keyframe/motion fingerprint 不一致都会阻断。
+
+`production_flow.image_result_gate` 默认 `prompt_only`，兼容只交付提示词的项目。质量优先生产
+可切换为 `observed`：套件仍不调用媒体服务，外部生成后由授权观察者将逐规格结果证据写入
+`.short-drama/evidence/production-observations.jsonl`。缺失或规格/参考槽/production profile
+hash 过期时以 `BLK-M4A-RESULT-OBSERVED` 阻断 M4b；`active` 观察不等于质量接受。
 
 ## 时长预算：配置在 M0，唯一正式兑现点是 M4b
 
@@ -128,11 +135,13 @@ fresh reviewer）。`pipeline --episode` 报告整集 M6 是否全部 approve。
 - `pipeline_version`：由套件管理，不可手工修改；
 - `enforcement`：`strict` | `guided`；
 - `allow_script_first`：`true` | `false`（唯一捷径开关）。
+- `image_result_gate`：`prompt_only` | `observed`；后者要求外部结果的精确授权观察。
 
 ```text
 python3 <core>/scripts/project_tool.py pipeline <project>              # 报告
 python3 <core>/scripts/project_tool.py pipeline <project> --episode EP001
 python3 <core>/scripts/project_tool.py pipeline <project> --set enforcement=guided
+python3 <core>/scripts/project_tool.py pipeline <project> --set image_result_gate=observed
 python3 <core>/scripts/project_tool.py upgrade-flow <project>            # 旧项目完成 M1.5 后升级
 ```
 

@@ -19,7 +19,8 @@
 - [ ] 每个 occurrence 的 decision 恰为 `reuse` / `new_variant` / `new_asset` /
   `unresolved`。
 - [ ] 每个 generation variant 有 `base_asset_id`、当前 `base_model_ref.record_id+record_hash`、changes、preserve 与 validity；基础模型变化时 variant 和 variant_delta 自动 stale。
-- [ ] 每个 View ID 全局唯一；每个 View 恰有一个 `view_projection`，每个 generation variant 恰有一个同时绑定 variant 与基础 model 的 `variant_delta`。
+- [ ] 每个 View ID 全局唯一；每个 View 恰有一个按 `scope.view_id` 绑定的 `view_projection`。Location 可额外为每种场景板保留一个按 `scope.sheet_profile` 绑定 spatial model 的 projection fragment；它不是 View。每个 generation variant 恰有一个同时绑定 variant 与基础 model 的 `variant_delta`。
+- [ ] 完整 Location 的 `coordinate_system` 明确非空 `north / origin / front / left_right`；每条空间证据使用受控 `prompt_group`，场景板逐项继承且不改判。
 - [ ] generation record ID 全局唯一；所有已接受 binding 精确解析到 Character+Look、Location+View 或
   Prop+State。
 - [ ] unresolved 没有伪造 accepted binding，不能流入 prompt/storyboard 编译。

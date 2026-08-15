@@ -14,6 +14,7 @@
 - **规格**：`IMG-<id>`
 - **绑定**：`<asset-id>` + `<variant-id>`
 - **用途**：<后续复用目标>
+- **板式 profile**：`scene_orthographic | scene_top_view | 无`（附独立 `16:9` 板面布局、安全边距、spatial model 坐标引用、逐元素证据与后期注释策略）
 - **参考图用途**：`<slot_id / order / reference>` 只决定 `<role / may_control>`；不得导入 `<must_not_control>`；检查状态 `<observation ref | unverified + risks>`；无参考则写“无”
 - **文字来源政策**：`exact_readable | graphic_only | no_readable_text | pending_creator_text`
 - **本次呈现**：`readable | symbolic | blank | postproduction`（附 source → treatment 映射）
@@ -21,7 +22,7 @@
 
 ### 可复制通用提示词
 
-> <自然中文正文。用途/主体与区分性锚点在前，状态、构图、空间/尺度、材质/光线、背景、文字政策、保持/排除依次展开。不要出现字段名、hash、审查话术或生成历史。>
+> <符合 `prompt_language` 的自然语言正文。用途/主体与区分性锚点在前，状态、构图、空间/尺度、材质/光线、背景、文字政策、保持/排除依次展开。不要出现字段名、hash、审查话术或生成历史。>
 
 ### 变体/编辑说明
 

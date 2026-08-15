@@ -9,7 +9,50 @@
 {
   "spec_id": "IMG-<stable-id>",
   "status": "candidate",
+  "language": "<must equal short-drama.json#/format/prompt_language>",
   "purpose": "character_sheet | location_plate | prop_plate | look_state_variant | edit_delta",
+  "sheet_profile": {
+    "name": "scene_orthographic | scene_top_view",
+    "projection": "orthographic | orthographic_top_down_90",
+    "panels": ["front", "left", "right", "back"],
+    "layout": "horizontal_4_panel | single_top_panel",
+    "board_aspect_ratio": "16:9",
+    "safe_margin": true,
+    "shared_scale": true,
+    "orientation_basis_ref": {
+      "owner": "short-drama-assets",
+      "artifact": "设定集/generation/spatial-models.jsonl",
+      "hash": "<sha256>",
+      "record_id": "SPATIAL-LOC-<id>",
+      "field": "/coordinate_system"
+    },
+    "cutaway_policy": "hide_obstructing_wall_only",
+    "roof_policy": "remove_roof_and_ceiling",
+    "evidence_display": {
+      "confirmed": "solid",
+      "inferred": "dashed_or_translucent",
+      "unknown": "dash_dot_labeled"
+    },
+    "evidence_bindings": [
+      {
+        "element_id": "<wall/door/window/furniture/region stable id or bounded description>",
+        "status": "confirmed | inferred | unknown",
+        "prompt_group": "shell | opening | fixed_furniture | region",
+        "source_ref": {
+          "owner": "short-drama-assets",
+          "artifact": "设定集/generation/spatial-models.jsonl",
+          "hash": "<same spatial model sha256>",
+          "record_id": "SPATIAL-LOC-<id>",
+          "field": "/evidence_elements/<RFC-6901-escaped-key>"
+        }
+      }
+    ],
+    "annotation_treatment": {
+      "mode": "postproduction",
+      "generated_text": "none",
+      "unknown_label": "needs_confirmation"
+    }
+  },
   "asset_bindings": [
     {
       "asset_id": "CHAR/CREATURE/LOC/PROP/VEHICLE/EFFECT-<id>",
@@ -175,7 +218,7 @@
     "local_negative_constraints": ["<只属于本任务的排除项>"]
   },
   "compilation_manifest": {
-    "compiler_version": "1.0",
+    "compiler_version": "1.2",
     "fragment_hashes": {"FRAG-<id>": "<sha256>"},
     "output_hash": "<sha256>"
   },
@@ -196,6 +239,14 @@
 Look Development 不使用本超集模板，改读
 [`lookdev-frame-spec.jsonl.md`](lookdev-frame-spec.jsonl.md)，避免普通人物、地点和道具规格加载
 风格帧专属字段。
+场景正交板和俯视板仍使用 `prompt_components.profile: asset_board`，并额外填写
+`sheet_profile`。两者的单一 Location binding 只绑定 spatial model，不带 `view_id/view_ref`；
+匹配的 `view_projection` fragment 使用 `scope.sheet_profile` 并引用该 spatial model。正交板删除
+`roof_policy`；俯视板删除 `cutaway_policy`，`panels` 固定为 `["top"]`。两者都不接受 storyboard
+overlay；摄影机、视野锥和演员走位由 M4b 拥有。完整约束见
+[`scene-spatial-sheets.md`](../references/scene-spatial-sheets.md)。
+`language` 由编译器在缺省时从 canonical fragments 推导并持久化；一旦显式声明，必须与所有
+fragment 的单一语言一致。编译器不猜测正文语种，只校验结构化声明。
 每条参考只声明一个用途，多参考的 `slot_id` 稳定且 `order` 显式。类型取舍、文字政策与
 参考准入由技能按 `references/common-recipe.md` 判断。候选与已接受对象分开发布；自然语言修改先形成
 候选和内容差异，不直接覆盖原记录。

@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.3.1-draft",
+  "schema_version": "1.3.3-draft",
   "project_id": "LOCAL-PROJECT-ID",
   "title": "未命名短剧",
   "language": "zh-CN",
@@ -34,9 +34,10 @@
     }
   },
   "production_flow": {
-    "pipeline_version": "2.0.1",
+    "pipeline_version": "2.0.2",
     "enforcement": "strict",
-    "allow_script_first": true
+    "allow_script_first": true,
+    "image_result_gate": "prompt_only"
   },
   "current_checkpoint": null
 }

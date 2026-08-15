@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import tempfile
 import unittest
@@ -52,6 +53,7 @@ class PromptCompileTests(unittest.TestCase):
         ]
         self.fragments = {record["fragment_id"]: record for record in records}
         self.record = {
+            "language": "en",
             "asset_bindings": [{"asset_id": "CHAR-1", "model_id": "MODEL-1", "variant_id": "VAR-1", "view_id": "VIEW-1"}],
             "task_and_format": "Generate one keyframe.",
             "prompt_components": {
@@ -65,6 +67,102 @@ class PromptCompileTests(unittest.TestCase):
             },
         }
 
+    def _scene_record(self, name: str) -> tuple[dict, dict[str, dict]]:
+        fragments = copy.deepcopy(self.fragments)
+        for value in fragments.values():
+            if value.get("fragment_kind") != "style_core":
+                value["asset_id"] = "LOC-1"
+            if value.get("fragment_kind") == "view_projection":
+                value["scope"] = {"sheet_profile": name}
+                value["model_refs"] = [{"record_id": "SPATIAL-LOC-1"}]
+            else:
+                value["scope"] = {"jobs": ["asset_board"]}
+                if value.get("fragment_kind") not in {"style_core", "variant_delta"}:
+                    value["model_refs"] = [{"record_id": "SPATIAL-LOC-1"}]
+            if value.get("fragment_kind") == "variant_delta":
+                value["model_refs"] = [
+                    {"record_id": "VAR-1"},
+                    {"record_id": "SPATIAL-LOC-1"},
+                ]
+            value["fragment_hash"] = COMPILER.fragment_hash(value)
+        record = copy.deepcopy(self.record)
+        record["purpose"] = "location_plate"
+        record["asset_bindings"] = [{
+            "asset_id": "LOC-1",
+            "model_id": "SPATIAL-LOC-1",
+            "variant_id": "VAR-1",
+        }]
+        record["prompt_components"]["profile"] = "asset_board"
+        record["prompt_components"]["fragment_refs"] = [
+            {"fragment_id": ref["fragment_id"], "hash": fragments[ref["fragment_id"]]["fragment_hash"]}
+            for ref in record["prompt_components"]["fragment_refs"]
+        ]
+        common = {
+            "name": name,
+            "shared_scale": True,
+            "board_aspect_ratio": "16:9",
+            "safe_margin": True,
+            "orientation_basis_ref": {
+                "owner": "short-drama-assets",
+                "artifact": "设定集/generation/spatial-models.jsonl",
+                "hash": "b" * 64,
+                "record_id": "SPATIAL-LOC-1",
+                "field": "/coordinate_system",
+            },
+            "evidence_display": dict(COMPILER.SHEET_PROFILE_EVIDENCE_DISPLAY),
+            "evidence_bindings": [
+                {
+                    "element_id": "north door",
+                    "status": "confirmed",
+                    "prompt_group": "opening",
+                    "source_ref": {
+                        "owner": "short-drama-assets",
+                        "artifact": "设定集/generation/spatial-models.jsonl",
+                        "hash": "b" * 64,
+                        "record_id": "SPATIAL-LOC-1",
+                        "field": "/evidence_elements/north_door",
+                    },
+                },
+                {
+                    "element_id": "unseen rear service recess",
+                    "status": "unknown",
+                    "prompt_group": "region",
+                    "source_ref": {
+                        "owner": "short-drama-assets",
+                        "artifact": "设定集/generation/spatial-models.jsonl",
+                        "hash": "b" * 64,
+                        "record_id": "SPATIAL-LOC-1",
+                        "field": "/evidence_elements/unseen_rear_service_recess",
+                    },
+                },
+            ],
+            "annotation_treatment": {
+                "mode": "postproduction",
+                "generated_text": "none",
+                "unknown_label": "needs_confirmation",
+            },
+        }
+        if name == "scene_orthographic":
+            common.update(
+                {
+                    "projection": "orthographic",
+                    "panels": ["front", "left", "right", "back"],
+                    "layout": "horizontal_4_panel",
+                    "cutaway_policy": "hide_obstructing_wall_only",
+                }
+            )
+        else:
+            common.update(
+                {
+                    "projection": "orthographic_top_down_90",
+                    "panels": ["top"],
+                    "layout": "single_top_panel",
+                    "roof_policy": "remove_roof_and_ceiling",
+                }
+            )
+        record["sheet_profile"] = common
+        return record, fragments
+
     def test_compile_is_ordered_and_idempotent(self) -> None:
         first = COMPILER.compile_record(self.record, self.fragments)
         second = COMPILER.compile_record(first, self.fragments)
@@ -73,6 +171,15 @@ class PromptCompileTests(unittest.TestCase):
         headings = ["Task and format:", "Fixed asset baseline:", "State delta:", "View and spatial projection:", "Current task:", "Exclusions:"]
         self.assertEqual([prompt.index(value) for value in headings], sorted(prompt.index(value) for value in headings))
         COMPILER.validate_compiled_record(first, self.fragments)
+
+    def test_record_language_is_persisted_and_declared_mismatch_fails(self) -> None:
+        derived = copy.deepcopy(self.record)
+        del derived["language"]
+        self.assertEqual(COMPILER.compile_record(derived, self.fragments)["language"], "en")
+        mismatch = copy.deepcopy(self.record)
+        mismatch["language"] = "zh-CN"
+        with self.assertRaisesRegex(COMPILER.CompileError, "record language"):
+            COMPILER.compile_record(mismatch, self.fragments)
 
     def test_fragment_library_is_deterministic_and_complete(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -156,7 +263,7 @@ class PromptCompileTests(unittest.TestCase):
         for value in fragments.values():
             value["language"] = "zh-CN"
             value["fragment_hash"] = COMPILER.fragment_hash(value)
-        record = {**self.record, "prompt_components": {**self.record["prompt_components"], "fragment_refs": [
+        record = {**self.record, "language": "zh-CN", "prompt_components": {**self.record["prompt_components"], "fragment_refs": [
             {"fragment_id": ref["fragment_id"], "hash": fragments[ref["fragment_id"]]["fragment_hash"]}
             for ref in self.record["prompt_components"]["fragment_refs"]
         ]}}
@@ -221,6 +328,73 @@ class PromptCompileTests(unittest.TestCase):
         swapped["prompt_components"]["fragment_refs"] = refs
         with self.assertRaisesRegex(COMPILER.CompileError, "canonical order"):
             COMPILER.compile_record(swapped, merged)
+
+    def test_scene_sheet_profiles_compile(self) -> None:
+        orthographic, fragments = self._scene_record("scene_orthographic")
+        compiled = COMPILER.compile_record(orthographic, fragments, expected_profile="asset_board")
+        self.assertEqual(compiled["sheet_profile"]["panels"], ["front", "left", "right", "back"])
+        self.assertIn("Scene sheet profile:", compiled["generic_prompt"])
+        self.assertIn("Front, Left, Right, Back", compiled["generic_prompt"])
+        self.assertIn("16:9 horizontal four-panel", compiled["generic_prompt"])
+        self.assertNotIn("north door", compiled["generic_prompt"])
+        self.assertEqual(len(compiled["sheet_profile"]["evidence_bindings"]), 2)
+
+        top_view, fragments = self._scene_record("scene_top_view")
+        compiled = COMPILER.compile_record(top_view, fragments, expected_profile="asset_board")
+        self.assertIn("geography base plate", compiled["generic_prompt"])
+        self.assertIn("postproduction", compiled["generic_prompt"])
+        self.assertNotIn("storyboard", compiled["generic_prompt"])
+
+    def test_scene_sheet_profiles_reject_invalid_ownership_or_geometry(self) -> None:
+        wrong_asset, fragments = self._scene_record("scene_orthographic")
+        wrong_asset["asset_bindings"][0]["asset_id"] = "CHAR-1"
+        with self.assertRaisesRegex(COMPILER.CompileError, "LOC- id"):
+            COMPILER.compile_record(wrong_asset, fragments)
+
+        wrong_order, fragments = self._scene_record("scene_orthographic")
+        wrong_order["sheet_profile"]["panels"] = ["front", "right", "left", "back"]
+        with self.assertRaisesRegex(COMPILER.CompileError, "canonical order"):
+            COMPILER.compile_record(wrong_order, fragments)
+
+        wrong_layout, fragments = self._scene_record("scene_orthographic")
+        wrong_layout["sheet_profile"]["layout"] = "vertical_4_panel"
+        with self.assertRaisesRegex(COMPILER.CompileError, "horizontal_4_panel"):
+            COMPILER.compile_record(wrong_layout, fragments)
+
+        missing_margin, fragments = self._scene_record("scene_top_view")
+        missing_margin["sheet_profile"]["safe_margin"] = False
+        with self.assertRaisesRegex(COMPILER.CompileError, "safe_margin"):
+            COMPILER.compile_record(missing_margin, fragments)
+
+        wrong_overlay, fragments = self._scene_record("scene_top_view")
+        wrong_overlay["sheet_profile"]["overlay_refs"] = {}
+        with self.assertRaisesRegex(COMPILER.CompileError, "do not accept storyboard overlays"):
+            COMPILER.compile_record(wrong_overlay, fragments)
+
+        wrong_orientation, fragments = self._scene_record("scene_top_view")
+        wrong_orientation["sheet_profile"]["orientation_basis_ref"]["record_id"] = "SPATIAL-OTHER"
+        with self.assertRaisesRegex(COMPILER.CompileError, "bound spatial model"):
+            COMPILER.compile_record(wrong_orientation, fragments)
+
+        wrong_evidence, fragments = self._scene_record("scene_top_view")
+        wrong_evidence["sheet_profile"]["evidence_bindings"] = []
+        with self.assertRaisesRegex(COMPILER.CompileError, "evidence_bindings"):
+            COMPILER.compile_record(wrong_evidence, fragments)
+
+        missing_evidence_field, fragments = self._scene_record("scene_top_view")
+        del missing_evidence_field["sheet_profile"]["evidence_bindings"][0]["source_ref"]["field"]
+        with self.assertRaisesRegex(COMPILER.CompileError, "evidence_elements"):
+            COMPILER.compile_record(missing_evidence_field, fragments)
+
+        wrong_evidence_model, fragments = self._scene_record("scene_top_view")
+        wrong_evidence_model["sheet_profile"]["evidence_bindings"][0]["source_ref"]["record_id"] = "SPATIAL-OTHER"
+        with self.assertRaisesRegex(COMPILER.CompileError, "bound spatial model"):
+            COMPILER.compile_record(wrong_evidence_model, fragments)
+
+        generated_label, fragments = self._scene_record("scene_top_view")
+        generated_label["sheet_profile"]["annotation_treatment"]["mode"] = "readable"
+        with self.assertRaisesRegex(COMPILER.CompileError, "postproduction"):
+            COMPILER.compile_record(generated_label, fragments)
 
 
 if __name__ == "__main__":

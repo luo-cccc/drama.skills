@@ -1,6 +1,49 @@
 # 发布说明
 
-### 2026-08-15 — 0.6.0
+### 2026-08-15 — 0.6.3
+
+- 完整 Location 的方向基准现在明确 Front 与左右手性；正交板和俯视板使用独立的 16:9
+  规划画幅与安全边距，不再继承项目成片比例或依赖提示词口头约定。
+- 空间证据继续逐项绑定完整来源，同时按建筑壳体、门窗、固定家具和功能区域汇总提示词表达，
+  大型场景不再把审计清单原样塞进生成正文。
+- 新增可选的外部结果观察门禁。质量优先流程可要求每条 M4a 资产图规格在进入分镜前具有精确、
+  当前且经授权的结果观察；默认模式保持只交付提示词。观察不等于质量通过或创作者接受。
+- 图片规格与 Look Development 规格统一服从项目提示词语言；编译器持久化语言声明并拒绝与
+  标准片段不一致的记录，不通过猜测正文语种制造误判。
+- 套件升级到 0.6.3、契约升级到 `1.3.3-draft`、提示配方升级到 `1.3.2-draft`；pipeline
+  升级到 2.0.2，编译器输出格式升级到 1.2。
+
+#### 0.6.2
+
+- canonical structured ref 新增闭合校验：技能所有的 accepted ref 必须存在同 owner、同路径、
+  同 hash 的 accepted 生命周期 provider；同批 candidate ref 必须绑定同 owner 的同批目标。
+  仅 creator 所有的输入、创作者决策，以及 creator/short-drama 所有的项目文件属于明确的
+  intrinsic authority 例外。
+- JSONL `record_id` 必须在目标文件中唯一解析，JSON `field` 必须是可解析的 RFC 6901 指针，
+  JSON 顶层 `record_id` 必须匹配顶层 `*_id`；Markdown 和其它文件不能声明记录级身份。
+  `--no-input-record-auto` 只关闭失效范围自动收窄，不关闭引用真实性校验。
+- 场景板 `evidence_bindings` 必须逐项引用绑定 spatial model 的
+  `/evidence_elements/<key>`，发布时核对 `element_id`、`status` 并要求无遗漏、无额外元素。
+  spatial model 的证据元素同时要求有效、非空且带 canonical `source_refs`。
+- 套件升级到 0.6.2、契约升级到 `1.3.2-draft`、提示配方升级到
+  `1.3.1-draft`；pipeline 保持 2.0.1，编译器输出格式保持 1.1。
+
+#### 0.6.1
+
+- 图片提示词新增 `scene_orthographic` 场景正交板 profile。它绑定单一 accepted Location 的
+  spatial model，不创建复合 View；固定 Front/Left/Right/Back 顺序、统一尺度、坐标基准、
+  正交投影和只隐藏当前阻挡墙的切墙政策。
+- 新增 `scene_top_view` 严格 90 度俯视地理底板 profile。摄影机、视野锥、镜头编号与演员路线
+  由下游 storyboard 拥有，M4a 不消费 M4b 记录，也不形成生命周期反向依赖。
+- 两种板式都新增逐元素 `evidence_bindings`，确认、推定和未知不再只声明空图例；未知标签固定
+  由后期排版添加，生成画面不得绘制可读注释文字。
+- `prompt_compile.py` 1.1 新增板式几何、spatial model 坐标引用、证据映射与后期注释校验，
+  并增加编译和跨阶段消费回归测试。由 1.0 编译的候选记录必须在再次发布前运行 `finalize`
+  或 `prompt_compile.py` 重新生成 manifest；已接受且未修改的快照不要求原地改写。
+- 套件升级到 0.6.1、提示配方升级到 `1.3.0-draft`；契约保持 `1.3.1-draft`，pipeline
+  保持 2.0.1。
+
+#### 0.6.0
 
 - 新增严格显式调用门禁：当前请求未点名对应 `$short-drama*` 技能时，九个技能均不得
   自动触发；子技能显式调用后仍以 `short-drama.json` 作为项目初始化门禁。
@@ -47,7 +90,7 @@
 - 连续地图新增与故事引擎 Hook 账本的一致性校验，稳定 ID、兑现计划和终态不能分别漂移。
 - 清理 README 与维护手册中会随测试或清单增长而失真的静态数量，改为指向实际校验输出。
 
-### 2026-08-14 — 0.5.0
+#### 0.5.0
 
 - 套件升级到 0.5.0，契约升级到 `1.3.0-draft`，提示配方保持 `1.1.0-draft`，固定流程保持 pipeline 2.0.0。
 - 新增 `generation-clips.jsonl` 与 `generation_clip_check.py`：项目默认单次模型调用上限 15 秒，

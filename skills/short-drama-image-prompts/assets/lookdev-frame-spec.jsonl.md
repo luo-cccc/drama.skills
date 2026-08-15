@@ -8,6 +8,7 @@
   "spec_id": "LOOKDEV-<stable-id>",
   "status": "candidate",
   "purpose": "lookdev_frame",
+  "language": "<must equal short-drama.json#/format/prompt_language>",
   "lookdev_axis": "character_expression | core_location | high_pressure_scene",
   "direction_ref": {
     "owner": "creator",
@@ -89,7 +90,7 @@
   "constraints": [
     "<必须保持的身份、地理、文字与信息权限>"
   ],
-  "generic_prompt": "<只含可被画出的自然中文，不含字段名/hash/审查话术>",
+  "generic_prompt": "<只含符合 language/prompt_language、可被画出的自然语言，不含字段名/hash/审查话术>",
   "derivation": {
     "input_hashes": [
       "<sha256>"

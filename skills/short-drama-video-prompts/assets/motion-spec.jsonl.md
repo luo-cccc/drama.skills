@@ -217,7 +217,7 @@
     "local_instructions": ["<首尾边界、动作、表演、摄影与声音>"],
     "local_negative_constraints": ["<当前镜头排除项>"]
   },
-  "compilation_manifest": {"compiler_version": "1.0", "fragment_hashes": {"FRAG-<id>": "<sha256>"}, "output_hash": "<sha256>"},
+  "compilation_manifest": {"compiler_version": "1.2", "fragment_hashes": {"FRAG-<id>": "<sha256>"}, "output_hash": "<sha256>"},
   "generic_prompt": "<prompt_compile.py 的确定性编译结果，不得自由改写>",
   "provenance": "creator_project"
 }

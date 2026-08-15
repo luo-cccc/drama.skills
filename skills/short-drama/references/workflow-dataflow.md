@@ -52,7 +52,7 @@ flowchart LR
 | M1.5b | image-prompts | M1.5a 模型与项目 prompt language | canonical fragments 结构化记录；Markdown 仅为绑定源哈希的投影 | M2、M4a-M5 |
 | M2 | write | episode map、资产模型和片段允许集合 | episode card、beats、screenplay、screenplay index、实际 generation asset bindings | M3、M4b、M6 |
 | M3 | assets | 当前剧本块与 M2 资产声明 | occurrence、reuse decision、continuity/state delta | M4a、M4b、交付摘要 |
-| M4a | image-prompts | M2 允许资产、M3 决定、M1.5 模型与片段 | image prompt specs；Markdown 为可复制投影 | 资产图生成、人审、M4b/M6 |
+| M4a | image-prompts | M2 允许资产、M3 决定、M1.5 模型与片段 | image prompt specs；Markdown 为可复制投影；`observed` 模式另需项目私有 generated-result observation | 外部资产图生成、授权观察、M4b/M6 |
 | M4b | storyboard | 剧本索引、M3 连续性、M4a 资产覆盖 | coverage、shots、start keyframes；每镜选择实际 View 并冻结边界 | M5、M6 |
 | M5 | video-prompts | accepted shot/keyframe 与同一资产指纹 | motion specs、generation clips、可选 delivery containers；Markdown 为可复制投影 | 视频模型调用、M6、M7 |
 | M6 | review | 冻结的 accepted 目标和 review bundle | findings、verdict、修订范围 | owner 修订或 M7 |

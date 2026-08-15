@@ -103,7 +103,12 @@ class AssetBaselineTests(unittest.TestCase):
         value.update({
             "model_id": f"MODEL-{asset_id}", "location_id": asset_id,
             "asset_kind": "location", "tier": "full",
-            "coordinate_system": {"north": "door", "origin": "southwest floor"},
+            "coordinate_system": {
+                "north": "door",
+                "origin": "southwest floor",
+                "front": "observer stands south and faces north",
+                "left_right": "west is left and east is right when facing north",
+            },
             "dimensions": {"width_m": 4, "depth_m": 6, "height_m": 3},
             "functional_zones": ["entry", "work"], "entrances": ["north door"],
             "connections": ["north door to hall"], "fixed_anchors": ["door", "desk"],
@@ -200,6 +205,49 @@ class AssetBaselineTests(unittest.TestCase):
         codes = {finding["code"] for finding in result["findings"]}
         self.assertIn("M15_MODEL_FIELD", codes)
         self.assertIn("M15_VARIANT_BASE", codes)
+
+    def test_spatial_evidence_elements_have_stable_status_and_sources(self) -> None:
+        scope = self._scope("LOCATION-ONE", "location", "full")
+        model = self._location_full("LOCATION-ONE")
+        model["evidence_elements"] = {
+            "north_door": {
+                "element_id": "north door",
+                "status": "confirmed",
+                "prompt_group": "opening",
+                "source_refs": [{
+                    "owner": "creator",
+                    "artifact": "输入/location-brief.json",
+                    "hash": "a" * 64,
+                }],
+            }
+        }
+        self._write("asset-scope.jsonl", [scope])
+        self._write("spatial-models.jsonl", [model])
+        self._write("view-contracts.jsonl", [self._view(model, "LOCATION-ONE")])
+        result = CHECKER.validate_m15a(self.directory)
+        self.assertEqual(result["status"], "pass", result["findings"])
+
+        model["evidence_elements"]["north_door"]["status"] = "certain"
+        model["evidence_elements"]["north_door"]["source_refs"] = []
+        self._write("spatial-models.jsonl", [model])
+        result = CHECKER.validate_m15a(self.directory)
+        self.assertIn(
+            "M15_SPATIAL_EVIDENCE",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_full_location_requires_explicit_front_basis(self) -> None:
+        scope = self._scope("LOCATION-ONE", "location", "full")
+        model = self._location_full("LOCATION-ONE")
+        del model["coordinate_system"]["front"]
+        self._write("asset-scope.jsonl", [scope])
+        self._write("spatial-models.jsonl", [model])
+        self._write("view-contracts.jsonl", [self._view(model, "LOCATION-ONE")])
+        result = CHECKER.validate_m15a(self.directory)
+        self.assertIn(
+            "M15_SPATIAL_ORIENTATION",
+            {finding["code"] for finding in result["findings"]},
+        )
 
     def test_duplicate_view_id_is_rejected(self) -> None:
         scope = self._scope("CHAR-ONE", "character", "compact")
@@ -353,6 +401,93 @@ class AssetBaselineTests(unittest.TestCase):
         codes = {finding["code"] for finding in result["findings"]}
         self.assertIn("M15_FRAGMENT_VARIANT", codes)
         self.assertIn("M15_FRAGMENT_VIEW", codes)
+
+    def test_location_sheet_projection_fragment_binds_spatial_model(self) -> None:
+        project = self.directory / "sheet-project"
+        generation = project / "设定集" / "generation"
+        generation.mkdir(parents=True)
+        visual_direction = {"status": "accepted", "value": "restrained realism"}
+        (project / "short-drama.json").write_text(
+            json.dumps({
+                "creator_authority": {"visual_direction": visual_direction},
+                "format": {"prompt_language": "en"},
+            }),
+            encoding="utf-8",
+        )
+        scope = self._scope("LOC-ONE", "location", "full")
+        model = self._location_full("LOC-ONE")
+        view = self._view(model, "LOC-ONE")
+        model_hash = digest(model)
+        view_hash = digest(view)
+
+        def write(name: str, records: list[dict]) -> None:
+            (generation / name).write_text(
+                "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+                encoding="utf-8",
+            )
+
+        write("asset-scope.jsonl", [scope])
+        write("asset-models.jsonl", [])
+        write("spatial-models.jsonl", [model])
+        write("variant-models.jsonl", [])
+        write("view-contracts.jsonl", [view])
+        (generation / "canonical-prompt-library.md").write_text("# fragments\n", encoding="utf-8")
+
+        def make_fragment(
+            fragment_id: str,
+            kind: str,
+            refs: list[tuple[str, str, str]],
+            scope_value: dict,
+            *,
+            asset_id: str | None = "LOC-ONE",
+        ) -> dict:
+            record = {
+                "fragment_id": fragment_id,
+                "fragment_kind": kind,
+                "asset_id": asset_id,
+                "language": "en",
+                "scope": scope_value,
+                "model_refs": [
+                    {"artifact": artifact, "record_id": record_id, "record_hash": record_hash}
+                    for artifact, record_id, record_hash in refs
+                ],
+                "input_hashes": {record_id: record_hash for _, record_id, record_hash in refs},
+                "text": fragment_id,
+            }
+            record["fragment_hash"] = CHECKER.record_hash(record, hash_field="fragment_hash")
+            return record
+
+        model_ref = [("设定集/generation/spatial-models.jsonl", model["model_id"], model_hash)]
+        view_ref = [("设定集/generation/view-contracts.jsonl", view["view_id"], view_hash)]
+        style = make_fragment(
+            "STYLE",
+            "style_core",
+            [],
+            {"project": "all_visual_generation"},
+            asset_id=None,
+        )
+        visual_hash = digest(visual_direction)
+        language_hash = digest("en")
+        style["model_refs"] = [
+            {"artifact": "short-drama.json", "field": "/creator_authority/visual_direction", "record_hash": visual_hash},
+            {"artifact": "short-drama.json", "field": "/format/prompt_language", "record_hash": language_hash},
+        ]
+        style["input_hashes"] = {
+            "/creator_authority/visual_direction": visual_hash,
+            "/format/prompt_language": language_hash,
+        }
+        style["fragment_hash"] = CHECKER.record_hash(style, hash_field="fragment_hash")
+        fragments = [
+            style,
+            make_fragment("ID", "identity_full", model_ref, {"jobs": sorted(CHECKER.PROMPT_PROFILES)}),
+            make_fragment("CONT", "continuity_lock", model_ref, {"jobs": sorted(CHECKER.PROMPT_PROFILES)}),
+            make_fragment("VIEW", "view_projection", view_ref, {"view_id": view["view_id"]}),
+            make_fragment("SHEET", "view_projection", model_ref, {"sheet_profile": "scene_top_view"}),
+            make_fragment("NEG", "negative_lock", model_ref, {"jobs": sorted(CHECKER.PROMPT_PROFILES)}),
+        ]
+        write("canonical-fragments.jsonl", fragments)
+        result = CHECKER.validate_fragments(generation, prompt_language="en")
+        self.assertEqual(result["status"], "pass", result["findings"])
 
 
 if __name__ == "__main__":

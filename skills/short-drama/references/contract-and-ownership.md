@@ -141,10 +141,20 @@ Every cross-artifact pointer uses one shape; stage-specific aliases such as
   by itself. Before creator acceptance, every external candidate input must exist
   as an accepted provider at the same hash; atomic acceptance can then promote
   exact co-published groups without rewriting mutually bound bytes.
-- `record_id` selects a stable JSONL/Markdown record; `field` is an RFC 6901-style
-  pointer inside that record. File-level refs may omit both. Field-only JSON refs
-  may omit `record_id`. The canonical `hash` remains the file hash even when a
-  record is selected; record digests used to narrow staleness are stored in the
+- An accepted ref owned by a skill must resolve to exactly one accepted lifecycle
+  provider with the same owner, project-relative path, and file hash. The only
+  provider-free intrinsic authority is deliberately narrow: creator-owned input
+  and creator-decision files, plus the project `short-drama.json` when owned by
+  `creator` or `short-drama`. A creator-owned label cannot bypass this rule for a
+  normal skill artifact.
+- `record_id` selects exactly one JSONL record by a top-level `*_id` value. An
+  accompanying `field` is an RFC 6901 pointer inside that selected record. For a
+  JSON document, `record_id` must match a top-level `*_id`, and `field` resolves
+  from the document root; a field-only JSON ref may omit `record_id`. Markdown and
+  other formats carry no record-level identity and must omit both selectors.
+  Missing, ambiguous, or unresolved selectors are errors, including when automatic
+  record binding is disabled. The canonical `hash` remains the file hash even when
+  a record is selected; record digests used to narrow staleness are stored in the
   lifecycle registry or in an explicit schema field such as `record_hash`.
 - `role`, `access`, or `expected_value` may extend a ref at the consuming layer;
   they never rename the five canonical keys.
@@ -255,7 +265,8 @@ inside the same WAL manifest, so forward recovery applies target bytes and stale
 lifecycle state together.
 
 A consumer of a shared `.json`/`.jsonl` input may additionally freeze
-`accepted_input_records`: the canonical hash of each record it actually read. Its
+`accepted_input_records`: the canonical hash of each JSONL record or JSON field it
+actually read. Its
 `accepted_inputs` hash then records the binding-time snapshot, while validity is
 judged record by record, so appending an unrelated character to a series 设定集 no
 longer invalidates every episode that referenced that file. A bound record that
@@ -319,3 +330,6 @@ Canonical fragment style inputs bind the two relevant JSON pointers separately,
 so changing delivery metadata does not invalidate visual prompts, while changing
 visual direction or `prompt_language` invalidates M1.5b and its actual consumers.
 Compiler section headings follow `prompt_language`; their semantic order is fixed.
+Image prompt specs carry or deterministically persist `language`; an explicit value must equal the
+single canonical-fragment language. LookDev specs declare the same field. The suite does not infer
+language from prose.

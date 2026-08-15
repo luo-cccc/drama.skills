@@ -14,6 +14,7 @@
 ```text
 python3 <short-drama-skill-dir>/scripts/project_tool.py init <project> --title <title> [--language <zh-CN|...>] [--prompt-language <en|...>] [--aspect-ratio 9:16] [--max-clip-seconds 15]
 python3 <short-drama-skill-dir>/scripts/project_tool.py status <project>
+python3 <short-drama-skill-dir>/scripts/project_tool.py pipeline <project> [--set image_result_gate=prompt_only|observed]
 python3 <short-drama-skill-dir>/scripts/project_tool.py recover <project>
 python3 <short-drama-skill-dir>/scripts/project_tool.py prepare <project> --stage write --episode EP001 --intent create
 python3 <short-drama-skill-dir>/scripts/project_tool.py finalize <project> --packet .short-drama/work/task-packets/<TASK>.json [--publish --artifact-id EP001:script]
@@ -378,16 +379,19 @@ fresh reviewer 或冷读审查者只读这份文件即可获得全部事实与�
 记录，所以文件 `hash` 前进之后产物依然可以交付。
 
 **`--input-record-auto`（默认开启）免写手动的记录清单**：发布时，候选输出里指向已声明
-`--input` 文件的结构化 refs（JSON/JSONL 内 `{owner, artifact, hash, record_id}`）会
-自动把它们的 `record_id` 并入记录绑定——一个 8 角色的文件不用手写 8 条
-`--input-record`，漏一条也不会报错。`--no-input-record-auto` 恢复整文件绑定
-（无手写记录时）。auto 收集只收窄**已声明**的输入，不推断新依赖；ref 里没有
-`record_id` 或它在该文件中无法唯一解析时静默跳过，退化为与手写漏掉一致的整文件绑定。
+`--input` 文件的结构化 refs 会把可收窄的 JSONL `record_id` 与 JSON RFC 6901 `field`
+并入记录绑定——一个 8 角色的文件不用手写 8 条 `--input-record`。`--no-input-record-auto`
+恢复整文件绑定（无手写记录时），但只关闭失效范围的自动收窄，**不关闭引用真实性校验**。
+auto 收集只收窄已声明的输入，不推断新依赖；canonical ref 的 owner、path、hash、provider、
+`record_id` 和 `field` 在两种模式下都必须有效，不存在或不唯一的 selector 直接拒绝发布。
 显式 `--input-record` 始终优先，与 auto 收集结果取并集。
 
 - **JSONL 选择器是记录 ID**：取值为某个以 `_id` 结尾的顶层字段，且在该文件中只出现
-  一次。出现零次或多次一律拒绝，不做猜测。
-- **JSON 选择器是 RFC 6901 指针**，例如 `/creator_authority/production_profile`。
+  一次；同时声明 `field` 时，该 RFC 6901 指针必须在选中记录内解析。出现零次、多次或
+  字段不存在一律拒绝，不做猜测。
+- **JSON 可用 RFC 6901 字段指针**，例如 `/creator_authority/production_profile`；声明
+  `record_id` 时，它必须匹配文档顶层某个 `*_id`。JSON field-only ref 可自动收窄。
+- **Markdown 与其它非 JSON 文件只能整文件引用**，不能声明 `record_id` 或 `field`。
 - 记录 `hash` 按键名排序后的规范形式计算，所以重排字段或改动缩进不会误判为变化。
 - screenplay-index 1.1 的 block 以 `record_hash_version: screenplay-block-v1` 明确采用稳定
   摘要：保留 block ID、类型、场景、内容 hash 和语义字段，排除父剧本文件 hash、行/字节

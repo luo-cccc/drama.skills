@@ -102,6 +102,7 @@ PROJECT_DIRS = (
     ".short-drama/conflicts",
     ".short-drama/locks",
     ".short-drama/tmp",
+    ".short-drama/evidence",
 )
 # Episode directories are the unit the delivery completeness gate enumerates by
 # prefix, so a path whose episode segment does not match this form is accepted,
@@ -2809,7 +2810,7 @@ def _bind_and_validate_canonical_fragments(
 
 def _structured_candidate_refs(
     relative: str, content: bytes
-) -> list[tuple[str, str, str | None, str | None]]:
+) -> list[tuple[str, str, str, str | None, str | None, str | None]]:
     suffix = PurePosixPath(relative).suffix.lower()
     if suffix == ".md":
         return []
@@ -2819,7 +2820,9 @@ def _structured_candidate_refs(
     else:
         documents = [_json_loads(line) for line in text.splitlines() if line.strip()]
 
-    references: list[tuple[str, str, str | None, str | None]] = []
+    references: list[
+        tuple[str, str, str, str | None, str | None, str | None]
+    ] = []
 
     def collect(value: Any) -> None:
         if isinstance(value, dict):
@@ -2853,8 +2856,20 @@ def _structured_candidate_refs(
                     raise ValueError(
                         f"structured ref record_id is invalid: {_relative_path(artifact)}"
                     )
+                field = value.get("field")
+                if field is not None and (not isinstance(field, str) or not field):
+                    raise ValueError(
+                        f"structured ref field is invalid: {_relative_path(artifact)}"
+                    )
                 references.append(
-                    (_relative_path(artifact), digest, authority, record_id)
+                    (
+                        owner,
+                        _relative_path(artifact),
+                        digest,
+                        authority,
+                        record_id,
+                        field,
+                    )
                 )
             for child_key, child in value.items():
                 if child_key == "previous_source_ref":
@@ -2873,6 +2888,216 @@ def _structured_candidate_refs(
     for document in documents:
         collect(document)
     return references
+
+
+def _structured_ref_selector(
+    content: bytes,
+    relative: str,
+    *,
+    record_id: str | None,
+    field: str | None,
+) -> str | None:
+    """Validate a canonical ref locator and return its lifecycle selector."""
+
+    suffix = PurePosixPath(relative).suffix.lower()
+    if suffix == ".jsonl":
+        if record_id is None:
+            if field is not None:
+                raise ValueError(
+                    f"structured JSONL ref field requires record_id: {relative} {field}"
+                )
+            return None
+        records = _jsonl_records(content, relative)
+        matches = [
+            record
+            for record in records
+            if any(
+                key.endswith("_id") and value == record_id
+                for key, value in record.items()
+                if isinstance(value, str)
+            )
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"structured ref record_id must resolve exactly once: {relative} {record_id}"
+            )
+        if field is not None:
+            _resolve_json_pointer(matches[0], field, relative)
+        return record_id
+    if suffix == ".json":
+        document = _json_loads(content.decode("utf-8"))
+        if record_id is not None:
+            if not isinstance(document, dict) or not any(
+                key.endswith("_id") and value == record_id
+                for key, value in document.items()
+                if isinstance(value, str)
+            ):
+                raise ValueError(
+                    f"structured ref record_id does not match JSON record: {relative} {record_id}"
+                )
+        if field is not None:
+            _resolve_json_pointer(document, field, relative)
+            return field if record_id is None else None
+        return None
+    if record_id is not None or field is not None:
+        raise ValueError(
+            f"structured ref record_id/field needs JSON or JSONL: {relative}"
+        )
+    return None
+
+
+def _intrinsic_authority_ref(owner: str, relative: str) -> bool:
+    """Return whether project-owned creator authority intentionally has no provider."""
+
+    if relative == PROJECT_FILE:
+        return owner in {"creator", "short-drama"}
+    parts = PurePosixPath(relative).parts
+    if not parts or owner != "creator":
+        return False
+    return parts[0].casefold() in {
+        CANONICAL_ROOTS["inputs"].casefold(),
+        LEGACY_ROOTS["inputs"].casefold(),
+        CANONICAL_ROOTS["creator-decisions"].casefold(),
+        LEGACY_ROOTS["creator-decisions"].casefold(),
+    }
+
+
+def _ref_providers(
+    artifacts: Mapping[str, Any],
+    *,
+    relative: str,
+    digest: str,
+    owner: str,
+    target_key: str,
+) -> list[str]:
+    return sorted(
+        artifact_id
+        for artifact_id, record in artifacts.items()
+        if isinstance(artifact_id, str)
+        and isinstance(record, dict)
+        and record.get("owner") == owner
+        and isinstance(record.get(target_key), dict)
+        and record[target_key].get(relative) == digest
+    )
+
+
+def _validate_scene_sheet_evidence_bindings(
+    root: Path,
+    outputs: Mapping[str, bytes],
+    exact_inputs: Mapping[str, str],
+) -> None:
+    for relative, content in outputs.items():
+        if PurePosixPath(relative).name.casefold() != "image-prompt-specs.jsonl":
+            continue
+        for prompt_spec in _jsonl_records(content, relative):
+            sheet = prompt_spec.get("sheet_profile")
+            if not isinstance(sheet, dict):
+                continue
+            bindings = prompt_spec.get("asset_bindings")
+            if not isinstance(bindings, list) or len(bindings) != 1:
+                continue
+            binding = bindings[0]
+            if not isinstance(binding, dict):
+                continue
+            model_id = _binding_value(binding, "model_id", "model_ref")
+            orientation_ref = sheet.get("orientation_basis_ref")
+            if not isinstance(orientation_ref, dict):
+                continue
+            spatial_relative = orientation_ref.get("artifact")
+            if not isinstance(spatial_relative, str):
+                continue
+            spatial_relative = _relative_path(spatial_relative)
+            expected_hash = exact_inputs.get(spatial_relative)
+            if expected_hash is None:
+                raise ValueError(
+                    "BLK-M4A-SHEET-EVIDENCE: spatial model must be an exact input: "
+                    f"{spatial_relative}"
+                )
+            spatial_content = _read_project_regular(root, spatial_relative)
+            if sha256_bytes(spatial_content) != expected_hash:
+                raise ValueError(
+                    f"BLK-M4A-SHEET-EVIDENCE: spatial model input is stale: {spatial_relative}"
+                )
+            matches = [
+                record
+                for record in _jsonl_records(spatial_content, spatial_relative)
+                if any(
+                    key.endswith("_id") and value == model_id
+                    for key, value in record.items()
+                    if isinstance(value, str)
+                )
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    "BLK-M4A-SHEET-EVIDENCE: bound spatial model must resolve exactly once: "
+                    f"{model_id}"
+                )
+            model = matches[0]
+            coordinate_system = model.get("coordinate_system")
+            if not isinstance(coordinate_system, dict) or any(
+                not isinstance(coordinate_system.get(field), str)
+                or not coordinate_system[field].strip()
+                for field in ("north", "origin", "front", "left_right")
+            ):
+                raise ValueError(
+                    "BLK-M4A-SHEET-ORIENTATION: bound spatial model needs non-empty "
+                    f"north, origin, front, and left_right: {model_id}"
+                )
+            evidence_elements = model.get("evidence_elements")
+            if not isinstance(evidence_elements, dict) or not evidence_elements:
+                raise ValueError(
+                    "BLK-M4A-SHEET-EVIDENCE: bound spatial model needs non-empty evidence_elements: "
+                    f"{model_id}"
+                )
+            sheet_evidence = sheet.get("evidence_bindings")
+            if not isinstance(sheet_evidence, list):
+                continue
+            covered_keys: set[str] = set()
+            for item in sheet_evidence:
+                if not isinstance(item, dict):
+                    continue
+                source_ref = item.get("source_ref")
+                if not isinstance(source_ref, dict):
+                    continue
+                field = source_ref.get("field")
+                if not isinstance(field, str):
+                    continue
+                target = _resolve_json_pointer(model, field, spatial_relative)
+                if not isinstance(target, dict):
+                    raise ValueError(
+                        "BLK-M4A-SHEET-EVIDENCE: evidence field must resolve to an object: "
+                        f"{field}"
+                    )
+                if target.get("element_id") != item.get("element_id"):
+                    raise ValueError(
+                        "BLK-M4A-SHEET-EVIDENCE: element_id does not match spatial evidence: "
+                        f"{item.get('element_id')}"
+                    )
+                if target.get("status") != item.get("status"):
+                    raise ValueError(
+                        "BLK-M4A-SHEET-EVIDENCE: status does not match spatial evidence: "
+                        f"{item.get('element_id')}"
+                    )
+                if target.get("prompt_group") != item.get("prompt_group"):
+                    raise ValueError(
+                        "BLK-M4A-SHEET-EVIDENCE: prompt_group does not match spatial evidence: "
+                        f"{item.get('element_id')}"
+                    )
+                key = field.removeprefix("/evidence_elements/")
+                covered_keys.add(key.replace("~1", "/").replace("~0", "~"))
+            expected_keys = set(evidence_elements)
+            if covered_keys != expected_keys:
+                missing = sorted(expected_keys - covered_keys)
+                extra = sorted(covered_keys - expected_keys)
+                details: list[str] = []
+                if missing:
+                    details.append("missing " + ", ".join(missing))
+                if extra:
+                    details.append("extra " + ", ".join(extra))
+                raise ValueError(
+                    "BLK-M4A-SHEET-EVIDENCE: evidence_bindings must cover the spatial model exactly: "
+                    + "; ".join(details)
+                )
 
 
 def _normalize_hash_mapping(values: Mapping[str, str], *, label: str) -> dict[str, str]:
@@ -3139,6 +3364,93 @@ def _input_bindings(record: Mapping[str, Any], key: str) -> dict[str, str]:
     return dict(sorted(normalized.items()))
 
 
+def _validate_structured_ref_closure(
+    root: Path,
+    state: Mapping[str, Any],
+    artifact_id: str,
+    record: Mapping[str, Any],
+    *,
+    inputs: Mapping[str, str],
+    candidate: bool,
+) -> None:
+    target_key = "candidate_targets" if candidate else "accepted_targets"
+    targets = record.get(target_key)
+    if not isinstance(targets, dict):
+        raise ValueError(f"structured ref target registry is unavailable: {artifact_id}")
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("structured ref provider registry is unavailable")
+    publication_owner = record.get("owner")
+    for output, expected_output_hash in targets.items():
+        if not isinstance(output, str) or not isinstance(expected_output_hash, str):
+            raise ValueError(f"structured ref target registry is invalid: {artifact_id}")
+        output_content = _read_project_regular(root, output)
+        if sha256_bytes(output_content) != expected_output_hash:
+            raise ValueError(f"structured ref target is stale: {output}")
+        for (
+            reference_owner,
+            referenced_path,
+            referenced_hash,
+            reference_authority,
+            record_id,
+            field,
+        ) in _structured_candidate_refs(output, output_content):
+            if referenced_path in targets:
+                if reference_authority != "candidate":
+                    raise ValueError(
+                        "same-publication ref must retain candidate authority: "
+                        f"{referenced_path}"
+                    )
+                if reference_owner != publication_owner:
+                    raise ValueError(
+                        "same-publication ref owner does not match publication owner: "
+                        f"{referenced_path}"
+                    )
+                if targets[referenced_path] != referenced_hash:
+                    raise ValueError(
+                        "same-publication ref hash does not match target: "
+                        f"{referenced_path}"
+                    )
+                _structured_ref_selector(
+                    _read_project_regular(root, referenced_path),
+                    referenced_path,
+                    record_id=record_id,
+                    field=field,
+                )
+                continue
+            if inputs.get(referenced_path) != referenced_hash:
+                raise ValueError(
+                    f"structured ref is not frozen as an exact input: {referenced_path}"
+                )
+            referenced_content = _read_project_regular(root, referenced_path)
+            if sha256_bytes(referenced_content) != referenced_hash:
+                raise ValueError(f"structured ref input is stale: {referenced_path}")
+            _structured_ref_selector(
+                referenced_content,
+                referenced_path,
+                record_id=record_id,
+                field=field,
+            )
+            if _intrinsic_authority_ref(reference_owner, referenced_path):
+                continue
+            providers = _ref_providers(
+                artifacts,
+                relative=referenced_path,
+                digest=referenced_hash,
+                owner=reference_owner,
+                target_key="accepted_targets",
+            )
+            if len(providers) > 1:
+                raise ValueError(
+                    f"accepted structured ref provider is ambiguous: {referenced_path}"
+                )
+            if not providers:
+                raise ValueError(
+                    "accepted structured ref has no matching accepted provider: "
+                    f"{referenced_path}"
+                )
+
+
 def _validate_input_closure(
     root: Path,
     state: Mapping[str, Any],
@@ -3176,6 +3488,14 @@ def _validate_input_closure(
         label="accepted input",
     )
     _verify_live_records(root, records, label="accepted input")
+    _validate_structured_ref_closure(
+        root,
+        state,
+        artifact_id,
+        record,
+        inputs=inputs,
+        candidate=bindings is not None,
+    )
     for relative, expected in inputs.items():
         record_bound = relative in records
         path_owners: list[str] = []
@@ -3853,6 +4173,7 @@ def publish_candidate(
     input_records: Mapping[str, Iterable[str]] | None = None,
     fault_injector: FaultInjector | None = None,
     allow_unregistered_path: bool = False,
+    auto_bind_structured_refs: bool = True,
 ) -> dict[str, Any]:
     """Publish a validated candidate without claiming creator or review authority.
 
@@ -3972,6 +4293,104 @@ def publish_candidate(
         selectors[fragments_relative] = sorted(
             set(selectors[fragments_relative]) | fragment_ids
         )
+    candidate_hashes = {
+        relative: sha256_bytes(content)
+        for relative, content in normalized_outputs.items()
+    }
+    for output, content in normalized_outputs.items():
+        for (
+            reference_owner,
+            referenced_path,
+            referenced_hash,
+            reference_authority,
+            record_id,
+            field,
+        ) in _structured_candidate_refs(output, content):
+            if referenced_path in candidate_hashes:
+                if reference_authority != "candidate":
+                    raise ValueError(
+                        "same-publication ref must declare candidate authority: "
+                        f"{referenced_path}"
+                    )
+                if reference_owner != owner:
+                    raise ValueError(
+                        "same-publication ref owner does not match publication owner: "
+                        f"{referenced_path}"
+                    )
+                if candidate_hashes[referenced_path] != referenced_hash:
+                    raise ValueError(
+                        "same-publication ref hash does not match candidate output: "
+                        f"{referenced_path}"
+                    )
+                _structured_ref_selector(
+                    normalized_outputs[referenced_path],
+                    referenced_path,
+                    record_id=record_id,
+                    field=field,
+                )
+                continue
+            if referenced_path not in exact_inputs:
+                raise ValueError(
+                    f"structured ref requires exact input: {referenced_path}"
+                )
+            referenced_content = _read_project_regular(root, referenced_path)
+            input_file_hash = sha256_bytes(referenced_content)
+            if input_file_hash != exact_inputs[referenced_path]:
+                raise ValueError(
+                    f"structured ref input is stale: {referenced_path}"
+                )
+            if input_file_hash != referenced_hash:
+                raise ValueError(
+                    f"structured ref input hash does not match: {referenced_path}"
+                )
+            selector = _structured_ref_selector(
+                referenced_content,
+                referenced_path,
+                record_id=record_id,
+                field=field,
+            )
+            if selector is not None and auto_bind_structured_refs:
+                selectors.setdefault(referenced_path, [])
+                selectors[referenced_path] = sorted(
+                    set(selectors[referenced_path]) | {selector}
+                )
+            if _intrinsic_authority_ref(reference_owner, referenced_path):
+                continue
+            accepted_providers = _ref_providers(
+                artifacts,
+                relative=referenced_path,
+                digest=input_file_hash,
+                owner=reference_owner,
+                target_key="accepted_targets",
+            )
+            candidate_providers = _ref_providers(
+                artifacts,
+                relative=referenced_path,
+                digest=input_file_hash,
+                owner=reference_owner,
+                target_key="candidate_targets",
+            )
+            if len(accepted_providers) > 1 or len(candidate_providers) > 1:
+                raise ValueError(
+                    f"structured ref provider is ambiguous: {referenced_path}"
+                )
+            if reference_authority == "candidate":
+                if accepted_providers:
+                    raise ValueError(
+                        "accepted input cannot declare candidate authority: "
+                        f"{referenced_path}"
+                    )
+                if not candidate_providers:
+                    raise ValueError(
+                        "candidate input has no matching candidate provider: "
+                        f"{referenced_path}"
+                    )
+            elif not accepted_providers:
+                raise ValueError(
+                    "accepted structured ref has no matching accepted provider: "
+                    f"{referenced_path}"
+                )
+    _validate_scene_sheet_evidence_bindings(root, normalized_outputs, exact_inputs)
     unbound = sorted(set(selectors) - set(exact_inputs))
     if unbound:
         raise ValueError(
@@ -3991,68 +4410,6 @@ def publish_candidate(
             for selector, digest in digests.items()
             if digest is not None
         }
-    candidate_hashes = {
-        relative: sha256_bytes(content)
-        for relative, content in normalized_outputs.items()
-    }
-    for output, content in normalized_outputs.items():
-        for (
-            referenced_path,
-            referenced_hash,
-            reference_authority,
-            _record_id,
-        ) in _structured_candidate_refs(output, content):
-            if referenced_path in candidate_hashes:
-                if reference_authority != "candidate":
-                    raise ValueError(
-                        "same-publication ref must declare candidate authority: "
-                        f"{referenced_path}"
-                    )
-                if candidate_hashes[referenced_path] != referenced_hash:
-                    raise ValueError(
-                        "same-publication ref hash does not match candidate output: "
-                        f"{referenced_path}"
-                    )
-                continue
-            if referenced_path not in exact_inputs:
-                raise ValueError(
-                    f"structured ref requires exact input: {referenced_path}"
-                )
-            referenced_content = _read_project_regular(root, referenced_path)
-            input_file_hash = sha256_bytes(referenced_content)
-            if input_file_hash != exact_inputs[referenced_path]:
-                raise ValueError(
-                    f"structured ref input is stale: {referenced_path}"
-                )
-            if input_file_hash != referenced_hash:
-                raise ValueError(
-                    f"structured ref input hash does not match: {referenced_path}"
-                )
-            if reference_authority == "candidate":
-                accepted_provider = any(
-                    isinstance(record, dict)
-                    and isinstance(record.get("accepted_targets"), dict)
-                    and record["accepted_targets"].get(referenced_path)
-                    == input_file_hash
-                    for record in artifacts.values()
-                )
-                candidate_provider = any(
-                    isinstance(record, dict)
-                    and isinstance(record.get("candidate_targets"), dict)
-                    and record["candidate_targets"].get(referenced_path)
-                    == input_file_hash
-                    for record in artifacts.values()
-                )
-                if accepted_provider:
-                    raise ValueError(
-                        "accepted input cannot declare candidate authority: "
-                        f"{referenced_path}"
-                    )
-                if not candidate_provider:
-                    raise ValueError(
-                        "candidate input has no matching candidate provider: "
-                        f"{referenced_path}"
-                    )
     lifecycle_changes = {
         artifact_id: {
             "build_state": "materialized",
@@ -4495,6 +4852,7 @@ def accept_decisions_batch(
                     for marker in (
                         "accepted input has no matching accepted provider",
                         "accepted input provider is not current",
+                        "accepted structured ref has no matching accepted provider",
                     )
                 ):
                     retry.append({**task, "last_error": reason})
@@ -6683,52 +7041,6 @@ def _publish_from_cli(args: argparse.Namespace) -> dict[str, Any]:
             )
         record_paths[portable] = relative
         records.setdefault(relative, []).append(selector)
-    if getattr(args, "input_record_auto", True):
-        # Structured refs in the candidate output already say exactly which
-        # records of a declared input this artifact consumed. Collect those
-        # record_ids into the binding so an 8-character file does not need 8
-        # hand-written --input-record lines. Explicit --input-record stays
-        # authoritative; a record_id that does not resolve in the input file
-        # is skipped silently, degrading to the same whole-file binding an
-        # omitted manual selector would have produced.
-        auto_collected: dict[str, set[str]] = {}
-        for target, content in outputs.items():
-            for (
-                referenced_path,
-                referenced_hash,
-                _authority,
-                record_id,
-            ) in _structured_candidate_refs(target, content):
-                if record_id is None:
-                    continue
-                expected_file_hash = inputs.get(referenced_path)
-                if expected_file_hash is None:
-                    continue
-                try:
-                    referenced_content = _read_project_regular(root, referenced_path)
-                except OSError:
-                    continue
-                if sha256_bytes(referenced_content) != expected_file_hash:
-                    continue
-                if referenced_hash != expected_file_hash:
-                    continue
-                try:
-                    _record_digests(
-                        referenced_content,
-                        referenced_path,
-                        [record_id],
-                    )
-                except (UnicodeError, ValueError):
-                    continue
-                auto_collected.setdefault(referenced_path, set()).add(record_id)
-        for path, selectors in auto_collected.items():
-            merged = list(records.get(path, []))
-            seen = set(merged)
-            for selector in sorted(selectors):
-                if selector not in seen:
-                    seen.add(selector)
-                    merged.append(selector)
-            records[path] = merged
     result = publish_candidate(
         root,
         owner=args.owner,
@@ -6737,6 +7049,9 @@ def _publish_from_cli(args: argparse.Namespace) -> dict[str, Any]:
         outputs=outputs,
         input_hashes=inputs,
         input_records=records or None,
+        auto_bind_structured_refs=bool(
+            getattr(args, "input_record_auto", True)
+        ),
     )
     warnings = _screenplay_index_warnings(root, args.owner, outputs)
     warnings.extend(_screenplay_duration_warnings(root, args.owner, outputs))
@@ -7547,15 +7862,18 @@ def build_review_bundle(
     }
 
 
-PIPELINE_VERSION = "2.0.1"
-SUITE_VERSION = "0.6.0"
-CONTRACT_VERSION = "1.3.1-draft"
+PIPELINE_VERSION = "2.0.2"
+SUITE_VERSION = "0.6.3"
+CONTRACT_VERSION = "1.3.3-draft"
+PRODUCTION_OBSERVATIONS_FILE = ".short-drama/evidence/production-observations.jsonl"
 PRODUCTION_FLOW_DEFAULTS: dict[str, Any] = {
     "pipeline_version": PIPELINE_VERSION,
     "enforcement": "strict",
     "allow_script_first": True,
+    "image_result_gate": "prompt_only",
 }
 MILESTONE_ORDER = ("M0", "M1", "M1.5a", "M1.5b", "M2", "M3", "M4a", "M4b", "M5", "M6", "M7")
+SCENE_SHEET_PROFILES = frozenset({"scene_orthographic", "scene_top_view"})
 TASK_PACKET_SCHEMA = "short-drama-task-packet"
 TASK_PACKET_VERSION = 1
 TASK_STAGE_ALIASES = {
@@ -7726,6 +8044,8 @@ def _effective_production_flow(root: Path) -> dict[str, Any]:
         flow["enforcement"] = "strict"
     if not isinstance(flow.get("allow_script_first"), bool):
         flow["allow_script_first"] = True
+    if flow.get("image_result_gate") not in {"prompt_only", "observed"}:
+        flow["image_result_gate"] = "prompt_only"
     return flow
 
 
@@ -8018,6 +8338,7 @@ def _m2_generation_binding_issues(
             fragment.get("scope", {}).get("view_id")
             for fragment in asset_fragments
             if fragment.get("fragment_kind") == "view_projection"
+            and fragment.get("scope", {}).get("sheet_profile") is None
         }
         if set(view_ids) != fragment_views:
             issues.append(
@@ -8026,14 +8347,30 @@ def _m2_generation_binding_issues(
         for fragment in asset_fragments:
             if fragment.get("fragment_kind") != "view_projection":
                 continue
-            view_id = fragment.get("scope", {}).get("view_id")
+            scope = fragment.get("scope", {})
+            view_id = scope.get("view_id")
+            sheet_profile = scope.get("sheet_profile")
             record_ids = {
                 reference.get("record_id")
                 for reference in fragment.get("model_refs", [])
                 if isinstance(reference, dict)
             }
-            if view_id not in record_ids:
+            if isinstance(view_id, str) and view_id not in record_ids:
                 issues.append(f"{asset_id} view_projection does not bind its scoped View")
+            elif sheet_profile in SCENE_SHEET_PROFILES and model_id not in record_ids:
+                issues.append(
+                    f"{asset_id} {sheet_profile} projection does not bind spatial model {model_id}"
+                )
+            elif view_id is None and sheet_profile not in SCENE_SHEET_PROFILES:
+                issues.append(f"{asset_id} has invalid view_projection scope")
+        sheet_profiles = [
+            fragment.get("scope", {}).get("sheet_profile")
+            for fragment in asset_fragments
+            if fragment.get("fragment_kind") == "view_projection"
+            and fragment.get("scope", {}).get("sheet_profile") is not None
+        ]
+        if len(sheet_profiles) != len(set(sheet_profiles)):
+            issues.append(f"{asset_id} has duplicate scene sheet projection fragments")
         fragment_variants = {
             fragment.get("variant_id")
             for fragment in asset_fragments
@@ -8291,6 +8628,8 @@ def _prompt_fragment_refs(
 def _binding_fragment_refs(
     binding: Mapping[str, Any],
     expected: Mapping[str, Any],
+    *,
+    sheet_profile: str | None = None,
 ) -> tuple[tuple[str, str], ...] | None:
     fragments = expected.get("fragments")
     if not isinstance(fragments, dict):
@@ -8330,8 +8669,21 @@ def _binding_fragment_refs(
         return None
     if variant_id is not None and not one("variant_delta", match=str(variant_id)):
         return None
-    if not isinstance(view_id, str) or not one("view_projection", match=view_id):
-        return None
+    if sheet_profile is None:
+        if not isinstance(view_id, str) or not one("view_projection", match=view_id):
+            return None
+    else:
+        matches = [
+            record
+            for record in fragments.values()
+            if isinstance(record, dict)
+            and record.get("fragment_kind") == "view_projection"
+            and record.get("asset_id") == asset_id
+            and record.get("scope", {}).get("sheet_profile") == sheet_profile
+        ]
+        if len(matches) != 1:
+            return None
+        selected.append(matches[0])
     if not one("negative_lock"):
         return None
     result: list[tuple[str, str]] = []
@@ -8347,13 +8699,19 @@ def _binding_fragment_refs(
 def _record_expected_fragment_refs(
     bindings: list[dict[str, str | None]],
     m2_bindings: Mapping[str, Mapping[str, Any]],
+    *,
+    sheet_profile: str | None = None,
 ) -> tuple[tuple[str, str], ...] | None:
     local: list[tuple[tuple[str, str], ...]] = []
     for binding in bindings:
         expected = m2_bindings.get(str(binding["asset_id"]))
         if expected is None:
             return None
-        refs = _binding_fragment_refs(binding, expected)
+        refs = _binding_fragment_refs(
+            binding,
+            expected,
+            sheet_profile=sheet_profile,
+        )
         if refs is None:
             return None
         local.append(refs)
@@ -8390,6 +8748,7 @@ def _binding_against_m2_issues(
     m2_bindings: Mapping[str, Mapping[str, Any]],
     *,
     label: str,
+    require_view: bool = True,
 ) -> list[str]:
     asset_id = str(binding["asset_id"])
     expected = m2_bindings.get(asset_id)
@@ -8399,7 +8758,9 @@ def _binding_against_m2_issues(
     if binding.get("model_id") != expected.get("model_id"):
         issues.append(f"{label} model does not match M2 for {asset_id}")
     view_id = binding.get("view_id")
-    if not isinstance(view_id, str) or view_id not in expected.get("view_ids", set()):
+    if require_view and (
+        not isinstance(view_id, str) or view_id not in expected.get("view_ids", set())
+    ):
         issues.append(f"{label} View is not authorized by M2 for {asset_id}")
     variant_id = binding.get("variant_id")
     allowed_variants = expected.get("variant_ids", set())
@@ -8617,6 +8978,11 @@ def _m4a_asset_consumption_issues(
             continue
         if len(bindings) != 1:
             issues.append("M4a asset_board prompt spec must bind exactly one asset")
+        sheet = record.get("sheet_profile")
+        sheet_profile = sheet.get("name") if isinstance(sheet, dict) else None
+        if sheet_profile is not None and sheet_profile not in SCENE_SHEET_PROFILES:
+            issues.append(f"M4a has unsupported sheet_profile: {sheet_profile}")
+            sheet_profile = None
         normalized_bindings: list[dict[str, str | None]] = []
         for raw in bindings:
             binding = _normalized_generation_binding(raw)
@@ -8627,7 +8993,7 @@ def _m4a_asset_consumption_issues(
             asset_id = str(binding["asset_id"])
             consumed.add(asset_id)
             view_id = binding.get("view_id")
-            if isinstance(view_id, str):
+            if sheet_profile is None and isinstance(view_id, str):
                 covered_views.setdefault(asset_id, set()).add(view_id)
             variant_id = binding.get("variant_id")
             if isinstance(variant_id, str):
@@ -8635,10 +9001,19 @@ def _m4a_asset_consumption_issues(
             else:
                 base_covered.add(asset_id)
             issues.extend(
-                _binding_against_m2_issues(binding, m2_bindings, label="M4a")
+                _binding_against_m2_issues(
+                    binding,
+                    m2_bindings,
+                    label="M4a",
+                    require_view=sheet_profile is None,
+                )
             )
         actual_refs = _prompt_fragment_refs(record)
-        expected_refs = _record_expected_fragment_refs(normalized_bindings, m2_bindings)
+        expected_refs = _record_expected_fragment_refs(
+            normalized_bindings,
+            m2_bindings,
+            sheet_profile=sheet_profile,
+        )
         if actual_refs is None or expected_refs is None or actual_refs != expected_refs:
             issues.append("M4a prompt fragment fingerprint does not match its asset binding")
     missing = sorted(set(m2_bindings) - consumed)
@@ -8664,6 +9039,126 @@ def _m4a_asset_consumption_issues(
                 + ", ".join(missing_variants)
             )
     return sorted(set(issues))
+
+
+def _m4a_image_result_observation_issues(
+    root: Path,
+    group: Iterable[tuple[str, dict[str, Any], list[str]]],
+) -> list[str]:
+    """Require exact active generated-result observations without claiming approval."""
+
+    relative, issues = _accepted_stage_file(group, "/assets/image-prompt-specs.jsonl")
+    if relative is None:
+        return issues
+    try:
+        spec_content = _project_path(root, relative).read_bytes()
+        specs = _jsonl_records(spec_content, relative)
+    except (OSError, UnicodeError, ValueError) as error:
+        return [f"invalid accepted M4a prompt specs: {error}"]
+
+    observation_path = _project_path(root, PRODUCTION_OBSERVATIONS_FILE)
+    if not observation_path.is_file():
+        return [
+            "observed image_result_gate needs project-private production observations at "
+            + PRODUCTION_OBSERVATIONS_FILE
+        ]
+    try:
+        observations = _jsonl_records(
+            observation_path.read_bytes(), PRODUCTION_OBSERVATIONS_FILE
+        )
+    except (OSError, UnicodeError, ValueError) as error:
+        return [f"invalid production observations: {error}"]
+
+    project = _json_loads((root / PROJECT_FILE).read_text(encoding="utf-8"))
+    project_id = project.get("project_id")
+    authority = project.get("creator_authority")
+    production_profile = (
+        authority.get("production_profile") if isinstance(authority, dict) else None
+    )
+    production_profile_hash = sha256_bytes(
+        _canonical_record_bytes(production_profile)
+    )
+    spec_file_hash = sha256_bytes(spec_content)
+
+    active = [
+        observation
+        for observation in observations
+        if observation.get("observation_kind") == "generated_result"
+        and observation.get("evidence_state") == "active"
+    ]
+    result: list[str] = []
+    for spec in specs:
+        spec_id = spec.get("spec_id")
+        if not isinstance(spec_id, str) or not spec_id:
+            continue
+        spec_hash = _record_digest(relative, spec)
+        reference_bindings = spec.get("reference_bindings", [])
+        if not isinstance(reference_bindings, list):
+            reference_bindings = []
+        reference_slot_set_hash = sha256_bytes(
+            _canonical_record_bytes(reference_bindings)
+        )
+
+        def matches(observation: Mapping[str, Any]) -> bool:
+            media_hash = observation.get("observed_media_sha256")
+            if (
+                not isinstance(media_hash, str)
+                or re.fullmatch(r"[0-9a-f]{64}", media_hash) is None
+            ):
+                return False
+            refs = observation.get("prompt_or_spec_refs")
+            if not isinstance(refs, list) or not any(
+                isinstance(reference, dict)
+                and reference.get("owner") == "short-drama-image-prompts"
+                and reference.get("artifact") == relative
+                and reference.get("hash") == spec_file_hash
+                and reference.get("record_id") == spec_id
+                and reference.get("field") == "/generic_prompt"
+                for reference in refs
+            ):
+                return False
+            valid_only_for = observation.get("valid_only_for")
+            if not isinstance(valid_only_for, dict):
+                return False
+            prompt_hashes = valid_only_for.get("prompt_or_spec_hashes")
+            if (
+                valid_only_for.get("project_id") != project_id
+                or not isinstance(prompt_hashes, list)
+                or spec_hash not in prompt_hashes
+                or valid_only_for.get("reference_slot_set_hash")
+                != reference_slot_set_hash
+                or valid_only_for.get("production_profile_hash")
+                != production_profile_hash
+            ):
+                return False
+            configuration = observation.get("production_configuration")
+            profile_ref = (
+                configuration.get("profile_ref")
+                if isinstance(configuration, dict)
+                else None
+            )
+            return bool(
+                isinstance(profile_ref, dict)
+                and profile_ref.get("owner") == "creator"
+                and profile_ref.get("artifact") == PROJECT_FILE
+                and profile_ref.get("field") == "/creator_authority/production_profile"
+                and profile_ref.get("hash") == production_profile_hash
+            )
+
+        if not any(matches(observation) for observation in active):
+            result.append(
+                f"M4a spec {spec_id} needs an exact active generated_result observation"
+            )
+    return sorted(set(result))
+
+
+def _m4a_result_gate_issues(
+    root: Path,
+    group: Iterable[tuple[str, dict[str, Any], list[str]]],
+) -> list[str]:
+    if _effective_production_flow(root)["image_result_gate"] == "prompt_only":
+        return []
+    return _m4a_image_result_observation_issues(root, group)
 
 
 def _shot_generation_bindings(record: Mapping[str, Any]) -> list[dict[str, str | None]]:
@@ -9055,6 +9550,14 @@ def _fixed_stage_acceptance_issues(
         issues = _m4a_asset_consumption_issues(root, candidate_group, m2_bindings)
         return ("BLK-M4A-ASSET-CONSUME", issues) if issues else None
     if owner == "short-drama-storyboard":
+        image_prompts = _flow_artifacts(
+            effective_state,
+            owner="short-drama-image-prompts",
+            prefixes=prefixes,
+        )
+        observation_issues = _m4a_result_gate_issues(root, image_prompts)
+        if observation_issues:
+            return "BLK-M4A-RESULT-OBSERVED", observation_issues
         issues, _signatures = _m4b_asset_consumption_issues(
             root, candidate_group, m2_bindings
         )
@@ -9196,7 +9699,19 @@ def _episode_flow_report(
         if m3_done and accepted_required(m4a, required["m4a"])
         else ["M4a image prompt assets are incomplete"]
     )
-    m4a_done = accepted_required(m4a, required["m4a"]) and not m4a_consumption_issues
+    m4a_observation_issues = (
+        _m4a_result_gate_issues(root, m4a)
+        if (
+            accepted_required(m4a, required["m4a"])
+            and not m4a_consumption_issues
+        )
+        else []
+    )
+    m4a_done = (
+        accepted_required(m4a, required["m4a"])
+        and not m4a_consumption_issues
+        and not m4a_observation_issues
+    )
     m4b_consumption_issues: list[str]
     shot_signatures: dict[str, tuple[Any, ...]]
     if m4a_done and accepted_required(m4b, required["m4b"]):
@@ -9230,6 +9745,7 @@ def _episode_flow_report(
         "m3_consumption_issues": m3_consumption_issues,
         "m4a_done": m4a_done,
         "m4a_consumption_issues": m4a_consumption_issues,
+        "m4a_observation_issues": m4a_observation_issues,
         "m4b_done": m4b_done,
         "m4b_consumption_issues": m4b_consumption_issues,
         "m5_done": m5_done,
@@ -9350,11 +9866,22 @@ def _episode_asset_consumption_summary(
             stages["m4a_prompts"].update(str(binding["asset_id"]) for binding in normalized)
             record_id = str(record.get("spec_id") or f"asset-board-{number}")
             actual_refs = _prompt_fragment_refs(record)
-            expected_refs = _record_expected_fragment_refs(normalized, m2_binding_map)
+            sheet = record.get("sheet_profile")
+            sheet_profile = sheet.get("name") if isinstance(sheet, dict) else None
+            expected_refs = _record_expected_fragment_refs(
+                normalized,
+                m2_binding_map,
+                sheet_profile=(
+                    str(sheet_profile)
+                    if sheet_profile in SCENE_SHEET_PROFILES
+                    else None
+                ),
+            )
             m4a_binding_chains[record_id] = {
                 "bindings": serialize_signature(
                     _binding_signature(normalized, m2_binding_map)
                 ),
+                "sheet_profile": sheet_profile,
                 "fragment_refs": [
                     {"fragment_id": fragment_id, "hash": digest}
                     for fragment_id, digest in (actual_refs or ())
@@ -9836,7 +10363,7 @@ def production_flow_status(
         current.update(
             {
                 "milestone": "M1.5b",
-                "next_action": "运行 project_tool.py upgrade-flow <project> 切换到 pipeline 2.0.1",
+                "next_action": f"运行 project_tool.py upgrade-flow <project> 切换到 pipeline {PIPELINE_VERSION}",
             }
         )
 
@@ -9928,12 +10455,20 @@ def production_flow_status(
             episode_reports[ep]["current"] = "M3"
             continue
         if not report["m4a_done"]:
+            observation_issues = report.get("m4a_observation_issues", [])
             blockers.append(
                 {
-                    "code": "BLK-M4A-ASSET-CONSUME",
+                    "code": (
+                        "BLK-M4A-RESULT-OBSERVED"
+                        if observation_issues
+                        else "BLK-M4A-ASSET-CONSUME"
+                    ),
                     "milestone": "M4a",
                     "message": (
-                        f"{ep} 图片提示词未完整消费 M2/M3 资产："
+                        f"{ep} 外部图片结果尚未形成精确授权观察："
+                        + "; ".join(observation_issues)
+                        if observation_issues
+                        else f"{ep} 图片提示词未完整消费 M2/M3 资产："
                         + "; ".join(report.get("m4a_consumption_issues", []))
                     ),
                 }
@@ -9943,7 +10478,10 @@ def production_flow_status(
                     "milestone": "M4a",
                     "episode": ep,
                     "next_action": (
-                        f"写 {ep} 图片提示词并接受（$short-drama-image-prompts）"
+                        f"在外部生成 {ep} 资产图，并由授权观察者写入 "
+                        f"{PRODUCTION_OBSERVATIONS_FILE}"
+                        if observation_issues
+                        else f"写 {ep} 图片提示词并接受（$short-drama-image-prompts）"
                     ),
                 }
             )
@@ -10068,6 +10606,7 @@ def production_flow_status(
         "pipeline_version": flow["pipeline_version"],
         "enforcement": flow["enforcement"],
         "allow_script_first": flow["allow_script_first"],
+        "image_result_gate": flow["image_result_gate"],
         "current_milestone": current["milestone"],
         "episode": current["episode"],
         "next_action": current["next_action"],
@@ -10644,16 +11183,20 @@ def set_production_flow(
             if key in existing:
                 flow[key] = existing[key]
     for key, raw in changes.items():
-        if key not in {"enforcement", "allow_script_first"}:
+        if key not in {"enforcement", "allow_script_first", "image_result_gate"}:
             raise ValueError(f"unknown production flow setting: {key}")
         if key == "enforcement":
             if raw not in {"strict", "guided"}:
                 raise ValueError("enforcement must be strict or guided")
             flow[key] = raw
-        else:
+        elif key == "allow_script_first":
             if raw not in {"true", "false"}:
                 raise ValueError(f"{key} must be true or false")
             flow[key] = raw == "true"
+        else:
+            if raw not in {"prompt_only", "observed"}:
+                raise ValueError("image_result_gate must be prompt_only or observed")
+            flow[key] = raw
     project["production_flow"] = flow
     atomic_json(project_path, project)
     return {"production_flow": flow}
@@ -10713,7 +11256,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         dest="flow_settings",
-        help="KEY=VALUE override; repeat. Keys: enforcement, allow_script_first.",
+        help=(
+            "KEY=VALUE override; repeat. Keys: enforcement, allow_script_first, "
+            "image_result_gate."
+        ),
     )
 
     prepare = subparsers.add_parser(
